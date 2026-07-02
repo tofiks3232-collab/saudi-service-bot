@@ -1,1 +1,20 @@
-
+{
+  "name": "saudi-service-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp-first home services booking bot (Urban Pronto) using WhatsApp Cloud API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "better-sqlite3": "^11.3.0",
+    "body-parser": "^1.20.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0"
+  }
+}
