@@ -1,6 +1,1 @@
-services:
-- type: web
-  name: saudi-service-bot
-  env: node
-  buildCommand: npm install
-  startCommand: npm start
+
