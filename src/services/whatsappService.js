@@ -48,7 +48,28 @@ async function sendButtons(to, bodyText, buttons) {
   }
 }
 
+// Sends WhatsApp's native "Send Location" prompt.
+// Customer taps a button, WhatsApp opens their map picker, and they can
+// share either their live/current GPS location or pick a point on the map.
+async function sendLocationRequest(to, bodyText) {
+  try {
+    await client.post('/messages', {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'location_request_message',
+        body: { text: bodyText },
+        action: { name: 'send_location' },
+      },
+    });
+  } catch (err) {
+    logger.error('sendLocationRequest failed:', err.response?.data || err.message);
+  }
+}
+
 module.exports = {
   sendText,
   sendButtons,
+  sendLocationRequest,
 };
