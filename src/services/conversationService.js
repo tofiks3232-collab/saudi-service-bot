@@ -1,4 +1,4 @@
-const { sendText, sendButtons } = require('./whatsappService');
+const { sendText, sendButtons, sendLocationRequest } = require('./whatsappService');
 const { createBooking } = require('../database/db');
 const logger = require('../utils/logger');
 
@@ -37,6 +37,7 @@ async function handleIncomingMessage(phone, message) {
   const session = getSession(phone);
   const text = message.text?.body?.trim();
   const buttonId = message.interactive?.button_reply?.id;
+  const location = message.location; // { latitude, longitude, name?, address? }
 
   if (text && /^(hi|hello|start|hi bot|salam)$/i.test(text)) {
     await startFlow(phone);
@@ -68,18 +69,30 @@ async function handleIncomingMessage(phone, message) {
       }
       session.data.customerName = text;
       session.step = 'ask_location';
-      await sendText(phone, 'Shukriya! Ab apna location/address bhejein (area, city).');
+      await sendLocationRequest(
+        phone,
+        'Shukriya! Ab neeche button dabakar apni live location share karein, taaki hamari team sahi jagah pahunch sake.'
+      );
       break;
     }
 
     case 'ask_location': {
-      if (!text) {
-        await sendText(phone, 'Please apna location type karein.');
+      if (location && location.latitude && location.longitude) {
+        // Customer shared a live/pinned location via WhatsApp's map picker
+        const mapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
+        session.data.location = location.address || location.name || `Pin location: ${mapsLink}`;
+        session.data.locationCoords = `${location.latitude},${location.longitude}`;
+        session.data.locationMapsLink = mapsLink;
+      } else if (text) {
+        // Fallback: customer typed an address instead of sharing location
+        session.data.location = text;
+      } else {
+        await sendText(phone, 'Please upar diye gaye "Send Location" button se apni location share karein, ya address type karein.');
         return;
       }
-      session.data.location = text;
+
       session.step = 'ask_datetime';
-      await sendText(phone, 'Kis din aur time par service chahiye? (jaise: Kal shaam 5 baje)');
+      await sendText(phone, 'Location mil gayi! ✅\n\nKis din aur time par service chahiye? (jaise: Kal shaam 5 baje)');
       break;
     }
 
@@ -91,10 +104,15 @@ async function handleIncomingMessage(phone, message) {
       session.data.preferredDatetime = text;
       session.step = 'confirm';
 
+      let locationLine = `📍 Location: ${session.data.location}`;
+      if (session.data.locationMapsLink) {
+        locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
+      }
+
       const summary = `Booking confirm karne se pehle ek nazar daal lein:\n\n` +
         `🔧 Service: ${session.data.service}\n` +
         `👤 Naam: ${session.data.customerName}\n` +
-        `📍 Location: ${session.data.location}\n` +
+        `${locationLine}\n` +
         `🕒 Time: ${session.data.preferredDatetime}\n\n` +
         `Confirm karein?`;
 
@@ -143,12 +161,17 @@ async function notifyAdmin(bookingId, data, customerPhone) {
     return;
   }
 
-  const msg = `🔔 Nayi Booking!\n\n` +
+  let msg = `🔔 Nayi Booking!\n\n` +
     `ID: ${bookingId}\n` +
     `Service: ${data.service}\n` +
     `Naam: ${data.customerName}\n` +
-    `Location: ${data.location}\n` +
-    `Time: ${data.preferredDatetime}\n` +
+    `Location: ${data.location}\n`;
+
+  if (data.locationMapsLink) {
+    msg += `Map: ${data.locationMapsLink}\n`;
+  }
+
+  msg += `Time: ${data.preferredDatetime}\n` +
     `Customer Phone: ${customerPhone}`;
 
   await sendText(adminNumber, msg);
