@@ -1,7 +1,7 @@
 {
   "name": "saudi-service-bot",
   "version": "1.0.0",
-  "description": "WhatsApp-first home services booking bot (Urban Pronto) using WhatsApp Cloud API",
+  "description": "WhatsApp-first home services booking bot (Khidmora) using WhatsApp Cloud API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
