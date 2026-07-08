@@ -147,14 +147,17 @@ async function handleIncomingMessage(phone, message) {
     }
 
     case 'ask_location': {
+      // Only a real GPS location counts here - typing any text (even "ok")
+      // must NOT be accepted as if location was shared.
       if (location && location.latitude && location.longitude) {
         const mapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
         session.data.location = location.address || location.name || `Pin location: ${mapsLink}`;
         session.data.locationMapsLink = mapsLink;
-      } else if (text) {
-        session.data.location = text;
       } else {
-        await sendText(phone, 'Please upar diye gaye "Send Location" button se apni location share karein, ya address type karein.');
+        await sendText(
+          phone,
+          'Please upar diye gaye *"Send Location"* button ko dabakar apni live location share karein.\n\nYe zaroori hai taaki hamari team sahi jagah pahunch sake.'
+        );
         return;
       }
 
