@@ -22,7 +22,6 @@ function resetSession(phone) {
   sessions.set(phone, { step: 'new', data: {} });
 }
 
-// Builds the next 3 days x 2 time-slot rows for the tap-to-select list.
 function buildTimeSlots() {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const rows = [];
@@ -37,12 +36,12 @@ function buildTimeSlots() {
     rows.push({
       id: `slot_${i}_morning`,
       title: `${label} Morning`,
-      description: `${dateStr}, 9 AM - 12 PM`,
+      description: `${dateStr} • 9:00 AM - 12:00 PM`,
     });
     rows.push({
       id: `slot_${i}_evening`,
       title: `${label} Evening`,
-      description: `${dateStr}, 4 PM - 7 PM`,
+      description: `${dateStr} • 4:00 PM - 7:00 PM`,
     });
   }
 
@@ -54,11 +53,38 @@ async function startFlow(phone) {
   const session = getSession(phone);
   session.step = 'choose_service';
 
-  await sendButtons(phone, 'Assalamu Alaikum! 👋 Welcome to Urban Pronto.\n\nAap kaunsi service book karna chahte hain?', [
-    { id: 'svc_cleaning', title: 'Home Cleaning' },
-    { id: 'svc_ac', title: 'AC Service' },
-    { id: 'svc_plumber', title: 'Plumber' },
-  ]);
+  await sendText(
+    phone,
+    `*Urban Pronto* 🏠\n_Trusted home services, on demand_\n\n` +
+      `Assalamu Alaikum! Hum aapki khidmat mein hazir hain.\n\n` +
+      `Neeche di gayi list se apni service select karein 👇`
+  );
+
+  await sendList(
+    phone,
+    'Kaunsi service book karna chahte hain?',
+    'Services Dekhein',
+    [{
+      title: 'Hamari Services',
+      rows: [
+        {
+          id: 'svc_cleaning',
+          title: '🧹 Home Cleaning',
+          description: 'Deep cleaning, sofa, kitchen & bathroom',
+        },
+        {
+          id: 'svc_ac',
+          title: '❄️ AC Service',
+          description: 'Repair, gas refill, installation',
+        },
+        {
+          id: 'svc_plumber',
+          title: '🔧 Plumber',
+          description: 'Leak fix, pipe & tap installation',
+        },
+      ],
+    }]
+  );
 }
 
 async function handleIncomingMessage(phone, message) {
@@ -69,11 +95,12 @@ async function handleIncomingMessage(phone, message) {
   const listReplyTitle = message.interactive?.list_reply?.title;
   const location = message.location;
 
-  // Rating replies can arrive any time after a booking, independent of the
-  // current session step, so we handle them globally first.
   if (listReplyId && listReplyId.startsWith('rate_')) {
     const stars = listReplyId.split('_')[1];
-    await sendText(phone, `Shukriya aapki rating ke liye! ⭐ ${stars}/5\n\nHum apni service aur behtar banate rahenge. 🙏`);
+    await sendText(
+      phone,
+      `Shukriya aapki *${stars}/5* rating ke liye! ⭐\n\nHum apni service aur behtar banate rahenge. 🙏`
+    );
     await notifyAdminRating(phone, stars);
     return;
   }
@@ -90,14 +117,18 @@ async function handleIncomingMessage(phone, message) {
 
     case 'choose_service': {
       const map = { svc_cleaning: 'cleaning', svc_ac: 'ac', svc_plumber: 'plumber' };
-      const chosen = map[buttonId];
+      const chosenId = buttonId || listReplyId;
+      const chosen = map[chosenId];
       if (!chosen) {
-        await sendText(phone, 'Please neeche diye gaye buttons me se ek option choose karein.');
+        await sendText(phone, 'Please upar list se ek service choose karein.');
         return;
       }
       session.data.service = SERVICES[chosen];
       session.step = 'ask_name';
-      await sendText(phone, `Great! ${SERVICES[chosen]} select kiya hai.\n\nAapka pura naam kya hai?`);
+      await sendText(
+        phone,
+        `Great! Aapne *${SERVICES[chosen]}* select kiya hai. ✅\n\nAapka pura naam kya hai?`
+      );
       break;
     }
 
@@ -110,7 +141,7 @@ async function handleIncomingMessage(phone, message) {
       session.step = 'ask_location';
       await sendLocationRequest(
         phone,
-        'Shukriya! Ab neeche button dabakar apni live location share karein, taaki hamari team sahi jagah pahunch sake.'
+        `Shukriya, ${text}! 🙏\n\nAb neeche button dabakar apni live location share karein, taaki hamari team sahi jagah pahunch sake.`
       );
       break;
     }
@@ -131,7 +162,7 @@ async function handleIncomingMessage(phone, message) {
       const rows = buildTimeSlots();
       await sendList(
         phone,
-        'Location mil gayi! ✅\n\nAb neeche se apna time slot choose karein:',
+        'Location mil gayi! ✅\n\nAb neeche se apna preferred time slot choose karein:',
         'Slot Choose Karein',
         [{ title: 'Available Slots', rows }]
       );
@@ -140,7 +171,8 @@ async function handleIncomingMessage(phone, message) {
 
     case 'ask_datetime': {
       if (listReplyId && listReplyId.startsWith('slot_')) {
-        session.data.preferredDatetime = `${listReplyTitle} (${message.interactive?.list_reply?.description || ''})`.trim();
+        const desc = message.interactive?.list_reply?.description || '';
+        session.data.preferredDatetime = `${listReplyTitle} (${desc})`.trim();
       } else if (text) {
         session.data.preferredDatetime = text;
       } else {
@@ -150,16 +182,16 @@ async function handleIncomingMessage(phone, message) {
 
       session.step = 'confirm';
 
-      let locationLine = `📍 Location: ${session.data.location}`;
+      let locationLine = `📍 *Location:* ${session.data.location}`;
       if (session.data.locationMapsLink) {
         locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
       }
 
-      const summary = `Booking confirm karne se pehle ek nazar daal lein:\n\n` +
-        `🔧 Service: ${session.data.service}\n` +
-        `👤 Naam: ${session.data.customerName}\n` +
+      const summary = `*Booking Summary* 📋\n\n` +
+        `🔧 *Service:* ${session.data.service}\n` +
+        `👤 *Naam:* ${session.data.customerName}\n` +
         `${locationLine}\n` +
-        `🕒 Time: ${session.data.preferredDatetime}\n\n` +
+        `🕒 *Time:* ${session.data.preferredDatetime}\n\n` +
         `Confirm karein?`;
 
       await sendButtons(phone, summary, [
@@ -181,7 +213,9 @@ async function handleIncomingMessage(phone, message) {
 
         await sendText(
           phone,
-          `Booking confirm ho gayi! 🎉\n\nBooking ID: ${bookingId}\n\nHamari team jald aapse contact karegi. Shukriya Urban Pronto choose karne ke liye!`
+          `*Booking Confirm ho gayi!* 🎉\n\n` +
+            `Booking ID: *${bookingId}*\n\n` +
+            `Hamari team jald aapse contact karegi. Shukriya *Urban Pronto* choose karne ke liye! 🙏`
         );
 
         await notifyAdmin(bookingId, session.data, phone);
@@ -192,16 +226,17 @@ async function handleIncomingMessage(phone, message) {
         setTimeout(async () => {
           await sendText(
             phone,
-            `👷 Aapki ${serviceName} service ke liye technician assign ho gaya hai:\n\n` +
-              `Naam: ${provider.name}\n` +
-              `Phone: ${provider.phone}\n` +
-              `Rating: ⭐ ${provider.rating}/5\n\n` +
+            `👷 *Technician Assigned*\n\n` +
+              `Aapki ${serviceName} service ke liye:\n\n` +
+              `*Naam:* ${provider.name}\n` +
+              `*Phone:* ${provider.phone}\n` +
+              `*Rating:* ⭐ ${provider.rating}/5\n\n` +
               `Wo tay time par aapke location par pahunchenge.`
           );
 
           await sendList(
             phone,
-            'Booking ke experience ko rate karein (service complete hone ke baad):',
+            'Service complete hone ke baad, hamare experience ko rate karein:',
             'Rating Dein',
             [{
               title: 'Rate Our Service',
@@ -238,7 +273,7 @@ async function notifyAdmin(bookingId, data, customerPhone) {
     return;
   }
 
-  let msg = `🔔 Nayi Booking!\n\n` +
+  let msg = `🔔 *Nayi Booking!*\n\n` +
     `ID: ${bookingId}\n` +
     `Service: ${data.service}\n` +
     `Naam: ${data.customerName}\n` +
@@ -257,7 +292,7 @@ async function notifyAdmin(bookingId, data, customerPhone) {
 async function notifyAdminRating(customerPhone, stars) {
   const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
   if (!adminNumber) return;
-  await sendText(adminNumber, `⭐ Naya Rating Mila!\n\nCustomer: ${customerPhone}\nRating: ${stars}/5`);
+  await sendText(adminNumber, `⭐ *Naya Rating Mila!*\n\nCustomer: ${customerPhone}\nRating: ${stars}/5`);
 }
 
 module.exports = {
