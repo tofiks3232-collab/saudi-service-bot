@@ -55,7 +55,7 @@ async function startFlow(phone) {
 
   await sendText(
     phone,
-    `*Urban Pronto* 🏠\n_Trusted home services, on demand_\n\n` +
+    `*Khidmora* 🏠\n_Smart Home Services_\n\n` +
       `Assalamu Alaikum! Hum aapki khidmat mein hazir hain.\n\n` +
       `Neeche di gayi list se apni service select karein 👇`
   );
@@ -218,7 +218,7 @@ async function handleIncomingMessage(phone, message) {
           phone,
           `*Booking Confirm ho gayi!* 🎉\n\n` +
             `Booking ID: *${bookingId}*\n\n` +
-            `Hamari team jald aapse contact karegi. Shukriya *Urban Pronto* choose karne ke liye! 🙏`
+            `Hamari team jald aapse contact karegi. Shukriya *Khidmora* choose karne ke liye! 🙏`
         );
 
         await notifyAdmin(bookingId, session.data, phone);
