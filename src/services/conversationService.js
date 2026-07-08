@@ -1,5 +1,6 @@
-const { sendText, sendButtons, sendLocationRequest } = require('./whatsappService');
+const { sendText, sendButtons, sendLocationRequest, sendList } = require('./whatsappService');
 const { createBooking } = require('../database/db');
+const { assignServiceProvider } = require('./serviceProviders');
 const logger = require('../utils/logger');
 
 const sessions = new Map();
@@ -21,6 +22,33 @@ function resetSession(phone) {
   sessions.set(phone, { step: 'new', data: {} });
 }
 
+// Builds the next 3 days x 2 time-slot rows for the tap-to-select list.
+function buildTimeSlots() {
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const rows = [];
+  const today = new Date();
+
+  for (let i = 0; i < 3; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayNames[d.getDay()];
+    const dateStr = `${d.getDate()}/${d.getMonth() + 1}`;
+
+    rows.push({
+      id: `slot_${i}_morning`,
+      title: `${label} Morning`,
+      description: `${dateStr}, 9 AM - 12 PM`,
+    });
+    rows.push({
+      id: `slot_${i}_evening`,
+      title: `${label} Evening`,
+      description: `${dateStr}, 4 PM - 7 PM`,
+    });
+  }
+
+  return rows;
+}
+
 async function startFlow(phone) {
   resetSession(phone);
   const session = getSession(phone);
@@ -37,7 +65,18 @@ async function handleIncomingMessage(phone, message) {
   const session = getSession(phone);
   const text = message.text?.body?.trim();
   const buttonId = message.interactive?.button_reply?.id;
-  const location = message.location; // { latitude, longitude, name?, address? }
+  const listReplyId = message.interactive?.list_reply?.id;
+  const listReplyTitle = message.interactive?.list_reply?.title;
+  const location = message.location;
+
+  // Rating replies can arrive any time after a booking, independent of the
+  // current session step, so we handle them globally first.
+  if (listReplyId && listReplyId.startsWith('rate_')) {
+    const stars = listReplyId.split('_')[1];
+    await sendText(phone, `Shukriya aapki rating ke liye! ⭐ ${stars}/5\n\nHum apni service aur behtar banate rahenge. 🙏`);
+    await notifyAdminRating(phone, stars);
+    return;
+  }
 
   if (text && /^(hi|hello|start|hi bot|salam)$/i.test(text)) {
     await startFlow(phone);
@@ -78,13 +117,10 @@ async function handleIncomingMessage(phone, message) {
 
     case 'ask_location': {
       if (location && location.latitude && location.longitude) {
-        // Customer shared a live/pinned location via WhatsApp's map picker
         const mapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
         session.data.location = location.address || location.name || `Pin location: ${mapsLink}`;
-        session.data.locationCoords = `${location.latitude},${location.longitude}`;
         session.data.locationMapsLink = mapsLink;
       } else if (text) {
-        // Fallback: customer typed an address instead of sharing location
         session.data.location = text;
       } else {
         await sendText(phone, 'Please upar diye gaye "Send Location" button se apni location share karein, ya address type karein.');
@@ -92,16 +128,26 @@ async function handleIncomingMessage(phone, message) {
       }
 
       session.step = 'ask_datetime';
-      await sendText(phone, 'Location mil gayi! ✅\n\nKis din aur time par service chahiye? (jaise: Kal shaam 5 baje)');
+      const rows = buildTimeSlots();
+      await sendList(
+        phone,
+        'Location mil gayi! ✅\n\nAb neeche se apna time slot choose karein:',
+        'Slot Choose Karein',
+        [{ title: 'Available Slots', rows }]
+      );
       break;
     }
 
     case 'ask_datetime': {
-      if (!text) {
-        await sendText(phone, 'Please date aur time batayein.');
+      if (listReplyId && listReplyId.startsWith('slot_')) {
+        session.data.preferredDatetime = `${listReplyTitle} (${message.interactive?.list_reply?.description || ''})`.trim();
+      } else if (text) {
+        session.data.preferredDatetime = text;
+      } else {
+        await sendText(phone, 'Please upar list se ek time slot choose karein.');
         return;
       }
-      session.data.preferredDatetime = text;
+
       session.step = 'confirm';
 
       let locationLine = `📍 Location: ${session.data.location}`;
@@ -139,6 +185,37 @@ async function handleIncomingMessage(phone, message) {
         );
 
         await notifyAdmin(bookingId, session.data, phone);
+
+        const provider = assignServiceProvider();
+        const serviceName = session.data.service;
+
+        setTimeout(async () => {
+          await sendText(
+            phone,
+            `👷 Aapki ${serviceName} service ke liye technician assign ho gaya hai:\n\n` +
+              `Naam: ${provider.name}\n` +
+              `Phone: ${provider.phone}\n` +
+              `Rating: ⭐ ${provider.rating}/5\n\n` +
+              `Wo tay time par aapke location par pahunchenge.`
+          );
+
+          await sendList(
+            phone,
+            'Booking ke experience ko rate karein (service complete hone ke baad):',
+            'Rating Dein',
+            [{
+              title: 'Rate Our Service',
+              rows: [
+                { id: 'rate_1', title: '⭐ 1 - Poor' },
+                { id: 'rate_2', title: '⭐⭐ 2 - Fair' },
+                { id: 'rate_3', title: '⭐⭐⭐ 3 - Good' },
+                { id: 'rate_4', title: '⭐⭐⭐⭐ 4 - Very Good' },
+                { id: 'rate_5', title: '⭐⭐⭐⭐⭐ 5 - Excellent' },
+              ],
+            }]
+          );
+        }, 5 * 60 * 1000);
+
         resetSession(phone);
       } else if (buttonId === 'confirm_no') {
         await sendText(phone, 'Booking cancel kar di gayi. Naya booking start karne ke liye "Hi" bhejein.');
@@ -175,6 +252,12 @@ async function notifyAdmin(bookingId, data, customerPhone) {
     `Customer Phone: ${customerPhone}`;
 
   await sendText(adminNumber, msg);
+}
+
+async function notifyAdminRating(customerPhone, stars) {
+  const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+  if (!adminNumber) return;
+  await sendText(adminNumber, `⭐ Naya Rating Mila!\n\nCustomer: ${customerPhone}\nRating: ${stars}/5`);
 }
 
 module.exports = {
