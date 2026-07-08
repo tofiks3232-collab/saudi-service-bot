@@ -10,7 +10,7 @@ app.use(bodyParser.json());
 
 // Health check - Railway aur tum khud check karne ke liye use kar sakte ho
 app.get('/', (req, res) => {
-  res.send('Urban Pronto WhatsApp Bot is running ✅');
+  res.send('Khidmora WhatsApp Bot is running ✅');
 });
 
 // Simple admin view of recent bookings (no auth - MVP only, add auth before production use)
