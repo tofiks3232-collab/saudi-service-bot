@@ -22,30 +22,44 @@ function resetSession(phone) {
   sessions.set(phone, { step: 'new', data: {} });
 }
 
-function buildTimeSlots() {
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Step 1 of the "calendar": next 7 days as a tap-to-select list (WhatsApp
+// list messages max out at 10 rows, so 7 days fits comfortably with room
+// to spare).
+function buildDateOptions() {
   const rows = [];
   const today = new Date();
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 7; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
-    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayNames[d.getDay()];
-    const dateStr = `${d.getDate()}/${d.getMonth() + 1}`;
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : DAY_NAMES[d.getDay()];
+    const dateStr = `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
 
     rows.push({
-      id: `slot_${i}_morning`,
-      title: `${label} Morning`,
-      description: `${dateStr} • 9:00 AM - 12:00 PM`,
-    });
-    rows.push({
-      id: `slot_${i}_evening`,
-      title: `${label} Evening`,
-      description: `${dateStr} • 4:00 PM - 7:00 PM`,
+      id: `date_${i}`,
+      title: `${label}`,
+      description: dateStr,
     });
   }
 
   return rows;
+}
+
+// Step 2 of the "calendar": once a date is picked, show time ranges for
+// that specific date.
+function buildTimeSlotsForDate() {
+  return [
+    { id: 'time_morning', title: '🌅 Morning', description: '9:00 AM - 12:00 PM' },
+    { id: 'time_afternoon', title: '☀️ Afternoon', description: '12:00 PM - 4:00 PM' },
+    { id: 'time_evening', title: '🌇 Evening', description: '4:00 PM - 7:00 PM' },
+    { id: 'time_night', title: '🌙 Night', description: '7:00 PM - 9:00 PM' },
+  ];
 }
 
 async function startFlow(phone) {
@@ -161,23 +175,41 @@ async function handleIncomingMessage(phone, message) {
         return;
       }
 
-      session.step = 'ask_datetime';
-      const rows = buildTimeSlots();
+      session.step = 'ask_date';
+      const dateRows = buildDateOptions();
       await sendList(
         phone,
-        'Location mil gayi! ✅\n\nAb neeche se apna preferred time slot choose karein:',
-        'Slot Choose Karein',
-        [{ title: 'Available Slots', rows }]
+        'Location mil gayi! ✅\n\nAb apni preferred date choose karein 📅:',
+        'Date Choose Karein',
+        [{ title: 'Available Dates', rows: dateRows }]
+      );
+      break;
+    }
+
+    case 'ask_date': {
+      if (!listReplyId || !listReplyId.startsWith('date_')) {
+        await sendText(phone, 'Please upar list se ek date choose karein.');
+        return;
+      }
+
+      const desc = message.interactive?.list_reply?.description || '';
+      session.data.preferredDate = `${listReplyTitle}, ${desc}`.trim();
+
+      session.step = 'ask_datetime';
+      const timeRows = buildTimeSlotsForDate();
+      await sendList(
+        phone,
+        `Date select ho gayi! ✅ (*${session.data.preferredDate}*)\n\nAb apna preferred time slot choose karein 🕒:`,
+        'Time Choose Karein',
+        [{ title: 'Available Times', rows: timeRows }]
       );
       break;
     }
 
     case 'ask_datetime': {
-      if (listReplyId && listReplyId.startsWith('slot_')) {
+      if (listReplyId && listReplyId.startsWith('time_')) {
         const desc = message.interactive?.list_reply?.description || '';
-        session.data.preferredDatetime = `${listReplyTitle} (${desc})`.trim();
-      } else if (text) {
-        session.data.preferredDatetime = text;
+        session.data.preferredDatetime = `${session.data.preferredDate}, ${listReplyTitle} (${desc})`.trim();
       } else {
         await sendText(phone, 'Please upar list se ek time slot choose karein.');
         return;
