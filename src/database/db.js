@@ -48,17 +48,32 @@ function createBooking({ customerPhone, customerName, service, location, preferr
 }
 
 function getBooking(bookingId) {
-  const bookings = readBookings();
-  return bookings.find((b) => b.booking_id === bookingId);
+  return readBookings().find((b) => b.booking_id === bookingId);
 }
 
 function listRecentBookings(limit = 20) {
+  return readBookings().slice(-limit).reverse();
+}
+
+function getLatestBookingByPhone(phone) {
+  const matches = readBookings().filter((b) => b.customer_phone === phone);
+  return matches.length ? matches[matches.length - 1] : null;
+}
+
+function updateBookingStatus(bookingId, status) {
   const bookings = readBookings();
-  return bookings.slice(-limit).reverse();
+  const booking = bookings.find((b) => b.booking_id === bookingId);
+  if (booking) {
+    booking.status = status;
+    writeBookings(bookings);
+  }
+  return booking;
 }
 
 module.exports = {
   createBooking,
   getBooking,
   listRecentBookings,
+  getLatestBookingByPhone,
+  updateBookingStatus,
 };
