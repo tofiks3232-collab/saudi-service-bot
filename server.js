@@ -3,21 +3,21 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const logger = require('./src/utils/logger');
 const webhookRoutes = require('./src/routes/webhook');
+const adminRoutes = require('./src/routes/adminRoutes');
 const { listRecentBookings } = require('./src/database/db');
 
 const app = express();
 app.use(bodyParser.json());
 
-// Health check - Railway aur tum khud check karne ke liye use kar sakte ho
 app.get('/', (req, res) => {
   res.send('Khidmora WhatsApp Bot is running ✅');
 });
 
-// Simple admin view of recent bookings (no auth - MVP only, add auth before production use)
 app.get('/bookings', (req, res) => {
   res.json(listRecentBookings());
 });
 
+app.use('/admin', adminRoutes);
 app.use('/', webhookRoutes);
 
 const PORT = process.env.PORT || 3000;
