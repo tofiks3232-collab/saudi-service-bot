@@ -101,10 +101,39 @@ async function sendImage(to, imageUrl, caption) {
   }
 }
 
+async function sendImageButton(to, imageUrl, bodyText, buttonId, buttonTitle) {
+  try {
+    await client.post('/messages', {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        header: {
+          type: 'image',
+          image: { link: imageUrl },
+        },
+        body: { text: bodyText },
+        action: {
+          buttons: [
+            {
+              type: 'reply',
+              reply: { id: buttonId, title: buttonTitle },
+            },
+          ],
+        },
+      },
+    });
+  } catch (err) {
+    logger.error('sendImageButton failed:', err.response?.data || err.message);
+  }
+}
+
 module.exports = {
   sendText,
   sendButtons,
   sendLocationRequest,
   sendList,
   sendImage,
+  sendImageButton,
 };
