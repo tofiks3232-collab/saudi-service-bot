@@ -164,9 +164,11 @@ async function handleIncomingMessage(phone, message) {
       break;
     }
 
-    case 'ask_name': {
-      if (!text) {
-        await sendText(phone, 'Please apna naam type karein.');
+   case 'ask_name': {
+      const isValidName = text && text.length >= 3 && !/^(ok|okay|hi|hello|yes|no|ji|haan|thik hai|theek hai)$/i.test(text.trim());
+
+      if (!isValidName) {
+        await sendText(phone, 'Please apna *pura naam* type karein (jaise: Ahmed Khan).');
         return;
       }
       session.data.customerName = text;
