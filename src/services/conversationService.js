@@ -1,6 +1,7 @@
-const { sendText, sendButtons, sendLocationRequest, sendList, sendImageButton } = require('./whatsappService');
+const { sendText, sendButtons, sendLocationRequest, sendList, sendImageButton, downloadMedia } = require('./whatsappService');
 const { createBooking } = require('../database/db');
 const { getAllProviders, getProviderById } = require('./serviceProviders');
+const { saveImageBuffer } = require('../utils/mediaStorage');
 const logger = require('../utils/logger');
 
 const sessions = new Map();
@@ -58,9 +59,6 @@ function buildTimeSlotsForDate() {
   ];
 }
 
-// Sends each technician as its own image+button "card" so the customer can
-// simply tap "Select ✅" under the one they want. WhatsApp doesn't support
-// photos inside list messages, so separate cards is the cleanest option.
 async function sendTechnicianCards(phone) {
   const providers = getAllProviders();
 
@@ -157,6 +155,20 @@ async function handleIncomingMessage(phone, message) {
         return;
       }
       session.data.service = SERVICES[chosen];
+
+      if (chosen === 'ac') {
+        session.step = 'ac_photo_choice';
+        await sendButtons(
+          phone,
+          `Great! Aapne *${SERVICES[chosen]}* select kiya hai. ✅\n\nAC ki photo kaise share karna chahenge?`,
+          [
+            { id: 'ac_photo_send', title: '📷 Photo Bhejein' },
+            { id: 'ac_photo_skip', title: '🧑‍🔧 Technician Lega' },
+          ]
+        );
+        break;
+      }
+
       session.step = 'ask_name';
       await sendText(
         phone,
@@ -165,7 +177,46 @@ async function handleIncomingMessage(phone, message) {
       break;
     }
 
-   case 'ask_name': {
+    case 'ac_photo_choice': {
+      if (buttonId === 'ac_photo_send') {
+        session.step = 'ac_photo_upload';
+        await sendText(
+          phone,
+          'Please AC ki photo bhejein — camera se click karke ya gallery se select karke 📷 (neeche 📎 attachment icon dabayein).'
+        );
+      } else if (buttonId === 'ac_photo_skip') {
+        session.data.acPhotoPath = null;
+        session.step = 'ask_name';
+        await sendText(
+          phone,
+          'Theek hai, technician khud AC dekh kar photo lenge. 👍\n\nAapka pura naam kya hai?'
+        );
+      } else {
+        await sendText(phone, 'Please upar diye gaye button mein se ek choose karein.');
+      }
+      break;
+    }
+
+    case 'ac_photo_upload': {
+      const image = message.image;
+      if (!image || !image.id) {
+        await sendText(phone, 'Please AC ki photo bhejein (camera ya gallery se) 📷.');
+        return;
+      }
+
+      const media = await downloadMedia(image.id);
+      if (media) {
+        session.data.acPhotoPath = saveImageBuffer(media.buffer, media.mimeType);
+      } else {
+        logger.warn(`Failed to download AC photo for ${phone}`);
+      }
+
+      session.step = 'ask_name';
+      await sendText(phone, 'Photo mil gayi! ✅\n\nAapka pura naam kya hai?');
+      break;
+    }
+
+    case 'ask_name': {
       const isValidName = text && text.length >= 3 && !/^(ok|okay|hi|hello|yes|no|ji|haan|thik hai|theek hai)$/i.test(text.trim());
 
       if (!isValidName) {
@@ -290,6 +341,7 @@ async function handleIncomingMessage(phone, message) {
         preferredDatetime: session.data.preferredDatetime,
         technicianName: provider.name,
         technicianPhone: provider.phone,
+        acPhotoPath: session.data.acPhotoPath || null,
       });
 
       await sendText(
@@ -307,9 +359,6 @@ async function handleIncomingMessage(phone, message) {
 
       const serviceName = session.data.service;
 
-      // Cancel any leftover rating-reminder from a previous test/booking on
-      // this same phone number, so old timers can't fire mid-way through a
-      // brand-new conversation.
       if (pendingRatingTimers.has(phone)) {
         clearTimeout(pendingRatingTimers.get(phone));
       }
@@ -364,6 +413,11 @@ async function notifyAdmin(bookingId, data, customerPhone, provider) {
   msg += `Time: ${data.preferredDatetime}\n` +
     `Technician: ${provider.name} (${provider.phone})\n` +
     `Customer Phone: ${customerPhone}`;
+
+  if (data.acPhotoPath) {
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    msg += `\nAC Photo: ${baseUrl}${data.acPhotoPath}`;
+  }
 
   await sendText(adminNumber, msg);
 }
