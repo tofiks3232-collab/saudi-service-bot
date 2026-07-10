@@ -1,10 +1,8 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
-
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const GRAPH_API_VERSION = 'v20.0';
-
 const client = axios.create({
   baseURL: `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}`,
   headers: {
@@ -12,7 +10,6 @@ const client = axios.create({
     'Content-Type': 'application/json',
   },
 });
-
 async function sendText(to, body) {
   try {
     await client.post('/messages', {
@@ -25,7 +22,6 @@ async function sendText(to, body) {
     logger.error('sendText failed:', err.response?.data || err.message);
   }
 }
-
 async function sendButtons(to, bodyText, buttons) {
   try {
     await client.post('/messages', {
@@ -47,7 +43,6 @@ async function sendButtons(to, bodyText, buttons) {
     logger.error('sendButtons failed:', err.response?.data || err.message);
   }
 }
-
 async function sendLocationRequest(to, bodyText) {
   try {
     await client.post('/messages', {
@@ -64,7 +59,6 @@ async function sendLocationRequest(to, bodyText) {
     logger.error('sendLocationRequest failed:', err.response?.data || err.message);
   }
 }
-
 async function sendList(to, bodyText, buttonText, sections) {
   try {
     await client.post('/messages', {
@@ -84,7 +78,6 @@ async function sendList(to, bodyText, buttonText, sections) {
     logger.error('sendList failed:', err.response?.data || err.message);
   }
 }
-
 async function sendImage(to, imageUrl, caption) {
   try {
     await client.post('/messages', {
@@ -100,7 +93,6 @@ async function sendImage(to, imageUrl, caption) {
     logger.error('sendImage failed:', err.response?.data || err.message);
   }
 }
-
 async function sendImageButton(to, imageUrl, bodyText, buttonId, buttonTitle) {
   try {
     await client.post('/messages', {
@@ -129,6 +121,29 @@ async function sendImageButton(to, imageUrl, bodyText, buttonId, buttonTitle) {
   }
 }
 
+// Downloads an incoming WhatsApp media file (e.g. a photo the customer sent
+// us). WhatsApp's media URLs are temporary and require the same auth token
+// to fetch, so we grab the bytes ourselves and hand them back to the caller
+// to save wherever they like.
+async function downloadMedia(mediaId) {
+  try {
+    const metaRes = await axios.get(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+    });
+    const { url, mime_type: mimeType } = metaRes.data;
+
+    const fileRes = await axios.get(url, {
+      headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` },
+      responseType: 'arraybuffer',
+    });
+
+    return { buffer: Buffer.from(fileRes.data), mimeType };
+  } catch (err) {
+    logger.error('downloadMedia failed:', err.response?.data || err.message);
+    return null;
+  }
+}
+
 module.exports = {
   sendText,
   sendButtons,
@@ -136,4 +151,5 @@ module.exports = {
   sendList,
   sendImage,
   sendImageButton,
+  downloadMedia,
 };
