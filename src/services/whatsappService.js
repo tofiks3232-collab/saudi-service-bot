@@ -65,8 +65,6 @@ async function sendLocationRequest(to, bodyText) {
   }
 }
 
-// Sends a tap-to-select list (used for time slots and star ratings).
-// sections format: [{ title: 'Section title', rows: [{ id, title, description? }] }]
 async function sendList(to, bodyText, buttonText, sections) {
   try {
     await client.post('/messages', {
@@ -87,9 +85,26 @@ async function sendList(to, bodyText, buttonText, sections) {
   }
 }
 
+async function sendImage(to, imageUrl, caption) {
+  try {
+    await client.post('/messages', {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'image',
+      image: {
+        link: imageUrl,
+        caption,
+      },
+    });
+  } catch (err) {
+    logger.error('sendImage failed:', err.response?.data || err.message);
+  }
+}
+
 module.exports = {
   sendText,
   sendButtons,
   sendLocationRequest,
   sendList,
+  sendImage,
 };
