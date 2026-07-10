@@ -307,7 +307,15 @@ async function handleIncomingMessage(phone, message) {
 
       const serviceName = session.data.service;
 
-      setTimeout(async () => {
+      // Cancel any leftover rating-reminder from a previous test/booking on
+      // this same phone number, so old timers can't fire mid-way through a
+      // brand-new conversation.
+      if (pendingRatingTimers.has(phone)) {
+        clearTimeout(pendingRatingTimers.get(phone));
+      }
+
+      const ratingTimer = setTimeout(async () => {
+        pendingRatingTimers.delete(phone);
         await sendList(
           phone,
           'Service complete hone ke baad, hamare experience ko rate karein:',
@@ -324,6 +332,8 @@ async function handleIncomingMessage(phone, message) {
           }]
         );
       }, 5 * 60 * 1000);
+
+      pendingRatingTimers.set(phone, ratingTimer);
 
       resetSession(phone);
       break;
