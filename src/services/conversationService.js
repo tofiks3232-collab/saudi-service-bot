@@ -1,6 +1,6 @@
-const { sendText, sendButtons, sendLocationRequest, sendList } = require('./whatsappService');
+const { sendText, sendButtons, sendLocationRequest, sendList, sendImage } = require('./whatsappService');
 const { createBooking } = require('../database/db');
-const { assignServiceProvider } = require('./serviceProviders');
+const { getAllProviders, getProviderById } = require('./serviceProviders');
 const logger = require('../utils/logger');
 
 const sessions = new Map();
@@ -22,44 +22,30 @@ function resetSession(phone) {
   sessions.set(phone, { step: 'new', data: {} });
 }
 
-const MONTH_NAMES = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-// Step 1 of the "calendar": next 7 days as a tap-to-select list (WhatsApp
-// list messages max out at 10 rows, so 7 days fits comfortably with room
-// to spare).
-function buildDateOptions() {
+function buildTimeSlots() {
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const rows = [];
   const today = new Date();
 
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 3; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
-    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : DAY_NAMES[d.getDay()];
-    const dateStr = `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dayNames[d.getDay()];
+    const dateStr = `${d.getDate()}/${d.getMonth() + 1}`;
 
     rows.push({
-      id: `date_${i}`,
-      title: `${label}`,
-      description: dateStr,
+      id: `slot_${i}_morning`,
+      title: `${label} Morning`,
+      description: `${dateStr} • 9:00 AM - 12:00 PM`,
+    });
+    rows.push({
+      id: `slot_${i}_evening`,
+      title: `${label} Evening`,
+      description: `${dateStr} • 4:00 PM - 7:00 PM`,
     });
   }
 
   return rows;
-}
-
-// Step 2 of the "calendar": once a date is picked, show time ranges for
-// that specific date.
-function buildTimeSlotsForDate() {
-  return [
-    { id: 'time_morning', title: '🌅 Morning', description: '9:00 AM - 12:00 PM' },
-    { id: 'time_afternoon', title: '☀️ Afternoon', description: '12:00 PM - 4:00 PM' },
-    { id: 'time_evening', title: '🌇 Evening', description: '4:00 PM - 7:00 PM' },
-    { id: 'time_night', title: '🌙 Night', description: '7:00 PM - 9:00 PM' },
-  ];
 }
 
 async function startFlow(phone) {
@@ -101,6 +87,28 @@ async function startFlow(phone) {
   );
 }
 
+async function sendTechnicianOptions(phone) {
+  const providers = getAllProviders();
+
+  for (const provider of providers) {
+    await sendImage(phone, provider.photo, `${provider.name}\n⭐ ${provider.rating}/5`);
+  }
+
+  await sendList(
+    phone,
+    'Apni pasand ka technician choose karein:',
+    'Technician Choose Karein',
+    [{
+      title: 'Available Technicians',
+      rows: providers.map((p) => ({
+        id: p.id,
+        title: p.name,
+        description: `⭐ ${p.rating}/5 rating`,
+      })),
+    }]
+  );
+}
+
 async function handleIncomingMessage(phone, message) {
   const session = getSession(phone);
   const text = message.text?.body?.trim();
@@ -108,16 +116,6 @@ async function handleIncomingMessage(phone, message) {
   const listReplyId = message.interactive?.list_reply?.id;
   const listReplyTitle = message.interactive?.list_reply?.title;
   const location = message.location;
-
-  if (listReplyId && listReplyId.startsWith('rate_')) {
-    const stars = listReplyId.split('_')[1];
-    await sendText(
-      phone,
-      `Shukriya aapki *${stars}/5* rating ke liye! ⭐\n\nHum apni service aur behtar banate rahenge. 🙏`
-    );
-    await notifyAdminRating(phone, stars);
-    return;
-  }
 
   if (text && /^(hi|hello|start|hi bot|salam)$/i.test(text)) {
     await startFlow(phone);
@@ -161,8 +159,6 @@ async function handleIncomingMessage(phone, message) {
     }
 
     case 'ask_location': {
-      // Only a real GPS location counts here - typing any text (even "ok")
-      // must NOT be accepted as if location was shared.
       if (location && location.latitude && location.longitude) {
         const mapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
         session.data.location = location.address || location.name || `Pin location: ${mapsLink}`;
@@ -175,41 +171,23 @@ async function handleIncomingMessage(phone, message) {
         return;
       }
 
-      session.step = 'ask_date';
-      const dateRows = buildDateOptions();
-      await sendList(
-        phone,
-        'Location mil gayi! ✅\n\nAb apni preferred date choose karein 📅:',
-        'Date Choose Karein',
-        [{ title: 'Available Dates', rows: dateRows }]
-      );
-      break;
-    }
-
-    case 'ask_date': {
-      if (!listReplyId || !listReplyId.startsWith('date_')) {
-        await sendText(phone, 'Please upar list se ek date choose karein.');
-        return;
-      }
-
-      const desc = message.interactive?.list_reply?.description || '';
-      session.data.preferredDate = `${listReplyTitle}, ${desc}`.trim();
-
       session.step = 'ask_datetime';
-      const timeRows = buildTimeSlotsForDate();
+      const rows = buildTimeSlots();
       await sendList(
         phone,
-        `Date select ho gayi! ✅ (*${session.data.preferredDate}*)\n\nAb apna preferred time slot choose karein 🕒:`,
-        'Time Choose Karein',
-        [{ title: 'Available Times', rows: timeRows }]
+        'Location mil gayi! ✅\n\nAb neeche se apna preferred time slot choose karein:',
+        'Slot Choose Karein',
+        [{ title: 'Available Slots', rows }]
       );
       break;
     }
 
     case 'ask_datetime': {
-      if (listReplyId && listReplyId.startsWith('time_')) {
+      if (listReplyId && listReplyId.startsWith('slot_')) {
         const desc = message.interactive?.list_reply?.description || '';
-        session.data.preferredDatetime = `${session.data.preferredDate}, ${listReplyTitle} (${desc})`.trim();
+        session.data.preferredDatetime = `${listReplyTitle} (${desc})`.trim();
+      } else if (text) {
+        session.data.preferredDatetime = text;
       } else {
         await sendText(phone, 'Please upar list se ek time slot choose karein.');
         return;
@@ -250,49 +228,41 @@ async function handleIncomingMessage(phone, message) {
           phone,
           `*Booking Confirm ho gayi!* 🎉\n\n` +
             `Booking ID: *${bookingId}*\n\n` +
-            `Hamari team jald aapse contact karegi. Shukriya *Khidmora* choose karne ke liye! 🙏`
+            `Ab neeche diye gaye technicians mein se apni pasand ka technician choose karein 👇`
         );
 
         await notifyAdmin(bookingId, session.data, phone);
 
-        const provider = assignServiceProvider();
-        const serviceName = session.data.service;
-
-        setTimeout(async () => {
-          await sendText(
-            phone,
-            `👷 *Technician Assigned*\n\n` +
-              `Aapki ${serviceName} service ke liye:\n\n` +
-              `*Naam:* ${provider.name}\n` +
-              `*Phone:* ${provider.phone}\n` +
-              `*Rating:* ⭐ ${provider.rating}/5\n\n` +
-              `Wo tay time par aapke location par pahunchenge.`
-          );
-
-          await sendList(
-            phone,
-            'Service complete hone ke baad, hamare experience ko rate karein:',
-            'Rating Dein',
-            [{
-              title: 'Rate Our Service',
-              rows: [
-                { id: 'rate_1', title: '⭐ 1 - Poor' },
-                { id: 'rate_2', title: '⭐⭐ 2 - Fair' },
-                { id: 'rate_3', title: '⭐⭐⭐ 3 - Good' },
-                { id: 'rate_4', title: '⭐⭐⭐⭐ 4 - Very Good' },
-                { id: 'rate_5', title: '⭐⭐⭐⭐⭐ 5 - Excellent' },
-              ],
-            }]
-          );
-        }, 5 * 60 * 1000);
-
-        resetSession(phone);
+        session.data.bookingId = bookingId;
+        session.step = 'choose_technician';
+        await sendTechnicianOptions(phone);
       } else if (buttonId === 'confirm_no') {
         await sendText(phone, 'Booking cancel kar di gayi. Naya booking start karne ke liye "Hi" bhejein.');
         resetSession(phone);
       } else {
         await sendText(phone, 'Please Confirm ya Cancel button dabayein.');
       }
+      break;
+    }
+
+    case 'choose_technician': {
+      const provider = listReplyId ? getProviderById(listReplyId) : null;
+      if (!provider) {
+        await sendText(phone, 'Please upar list se ek technician choose karein.');
+        return;
+      }
+
+      await sendText(
+        phone,
+        `*Technician Confirm ho gaya!* ✅\n\n` +
+          `*Naam:* ${provider.name}\n` +
+          `*Rating:* ⭐ ${provider.rating}/5\n` +
+          `*Phone:* ${provider.phone}\n\n` +
+          `Wo tay time par aapke location par pahunchenge.`
+      );
+
+      await notifyAdminTechnicianChosen(session.data.bookingId, provider, phone);
+      resetSession(phone);
       break;
     }
 
@@ -324,10 +294,13 @@ async function notifyAdmin(bookingId, data, customerPhone) {
   await sendText(adminNumber, msg);
 }
 
-async function notifyAdminRating(customerPhone, stars) {
+async function notifyAdminTechnicianChosen(bookingId, provider, customerPhone) {
   const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
   if (!adminNumber) return;
-  await sendText(adminNumber, `⭐ *Naya Rating Mila!*\n\nCustomer: ${customerPhone}\nRating: ${stars}/5`);
+  await sendText(
+    adminNumber,
+    `👷 *Technician Selected*\n\nBooking: ${bookingId}\nTechnician: ${provider.name}\nCustomer: ${customerPhone}`
+  );
 }
 
 module.exports = {
