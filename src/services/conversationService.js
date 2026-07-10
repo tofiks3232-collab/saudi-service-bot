@@ -13,6 +13,8 @@ const SERVICES = {
   plumber: 'Plumber',
 };
 
+const URGENT_SURCHARGE = 50; // SAR — extra charge for urgent/ASAP bookings
+
 function getSession(phone) {
   if (!sessions.has(phone)) {
     sessions.set(phone, { step: 'new', data: {} });
@@ -245,14 +247,54 @@ async function handleIncomingMessage(phone, message) {
         return;
       }
 
-      session.step = 'ask_date';
-      const dateRows = buildDateOptions();
-      await sendList(
+      session.step = 'ask_urgency';
+      await sendButtons(
         phone,
-        'Location mil gayi! ✅\n\nAb apni preferred date choose karein 📅:',
-        'Date Choose Karein',
-        [{ title: 'Available Dates', rows: dateRows }]
+        `Location mil gayi! ✅\n\nKya aapko *turant* (ASAP) service chahiye, ya normal booking karni hai?`,
+        [
+          { id: 'urgent_yes', title: `🚨 Urgent (+${URGENT_SURCHARGE} SAR)` },
+          { id: 'urgent_no', title: '🗓️ Normal Booking' },
+        ]
       );
+      break;
+    }
+
+    case 'ask_urgency': {
+      if (buttonId === 'urgent_yes') {
+        session.data.isUrgent = true;
+        session.data.preferredDatetime = 'URGENT — ASAP (turant)';
+        session.step = 'confirm';
+
+        let locationLine = `📍 *Location:* ${session.data.location}`;
+        if (session.data.locationMapsLink) {
+          locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
+        }
+
+        const summary = `*Booking Summary* 📋\n\n` +
+          `🔧 *Service:* ${session.data.service}\n` +
+          `👤 *Naam:* ${session.data.customerName}\n` +
+          `${locationLine}\n` +
+          `🚨 *Urgent:* Haan (+${URGENT_SURCHARGE} SAR extra)\n` +
+          `🕒 *Time:* ${session.data.preferredDatetime}\n\n` +
+          `Confirm karein?`;
+
+        await sendButtons(phone, summary, [
+          { id: 'confirm_yes', title: 'Confirm ✅' },
+          { id: 'confirm_no', title: 'Cancel ❌' },
+        ]);
+      } else if (buttonId === 'urgent_no') {
+        session.data.isUrgent = false;
+        session.step = 'ask_date';
+        const dateRows = buildDateOptions();
+        await sendList(
+          phone,
+          'Theek hai! Ab apni preferred date choose karein 📅:',
+          'Date Choose Karein',
+          [{ title: 'Available Dates', rows: dateRows }]
+        );
+      } else {
+        await sendText(phone, 'Please upar diye gaye button mein se ek choose karein.');
+      }
       break;
     }
 
@@ -342,6 +384,7 @@ async function handleIncomingMessage(phone, message) {
         technicianName: provider.name,
         technicianPhone: provider.phone,
         acPhotoPath: session.data.acPhotoPath || null,
+        isUrgent: session.data.isUrgent || false,
       });
 
       await sendText(
@@ -400,8 +443,11 @@ async function notifyAdmin(bookingId, data, customerPhone, provider) {
     return;
   }
 
-  let msg = `🔔 *Nayi Booking!*\n\n` +
-    `ID: ${bookingId}\n` +
+  let msg = data.isUrgent
+    ? `🚨🚨 *URGENT BOOKING!* 🚨🚨\n\n`
+    : `🔔 *Nayi Booking!*\n\n`;
+
+  msg += `ID: ${bookingId}\n` +
     `Service: ${data.service}\n` +
     `Naam: ${data.customerName}\n` +
     `Location: ${data.location}\n`;
@@ -413,6 +459,10 @@ async function notifyAdmin(bookingId, data, customerPhone, provider) {
   msg += `Time: ${data.preferredDatetime}\n` +
     `Technician: ${provider.name} (${provider.phone})\n` +
     `Customer Phone: ${customerPhone}`;
+
+  if (data.isUrgent) {
+    msg += `\nUrgent Surcharge: +${URGENT_SURCHARGE} SAR`;
+  }
 
   if (data.acPhotoPath) {
     const baseUrl = process.env.PUBLIC_BASE_URL || '';
