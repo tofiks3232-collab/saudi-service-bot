@@ -32,6 +32,7 @@ function createBooking({
   technicianName,
   technicianPhone,
   acPhotoPath,
+  isUrgent,
 }) {
   const bookings = readBookings();
   const bookingId = generateBookingId();
@@ -45,6 +46,7 @@ function createBooking({
     technician_name: technicianName || null,
     technician_phone: technicianPhone || null,
     ac_photo_path: acPhotoPath || null,
+    is_urgent: isUrgent || false,
     status: 'pending',
     created_at: new Date().toISOString(),
   });
