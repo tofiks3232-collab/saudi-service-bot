@@ -4,6 +4,7 @@ const { getAllProviders, getProviderById } = require('./serviceProviders');
 const logger = require('../utils/logger');
 
 const sessions = new Map();
+const pendingRatingTimers = new Map();
 
 const SERVICES = {
   cleaning: 'Home Cleaning',
