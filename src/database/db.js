@@ -72,10 +72,20 @@ function updateBookingStatus(bookingId, status) {
   }
   return booking;
 }
+function updateBookingDatetime(bookingId, newDatetime) {
+  const bookings = readBookings();
+  const booking = bookings.find((b) => b.booking_id === bookingId);
+  if (booking) {
+    booking.preferred_datetime = newDatetime;
+    writeBookings(bookings);
+  }
+  return booking;
+}
 module.exports = {
   createBooking,
   getBooking,
   listRecentBookings,
   getLatestBookingByPhone,
   updateBookingStatus,
+  updateBookingDatetime,
 };
