@@ -1,12 +1,16 @@
 const { sendText, sendButtons, sendLocationRequest, sendList, downloadMedia } = require('./whatsappService');
-const { createBooking } = require('../database/db');
+const { createBooking, getLatestBookingByPhone, updateBookingStatus, updateBookingDatetime } = require('../database/db');
+const { assignServiceProvider } = require('./serviceProviders');
 const { saveImageBuffer } = require('../utils/mediaStorage');
-const { t, getDayNames, getMonthNames, getTodayLabel, getTomorrowLabel } = require('../utils/translations');
+const { t } = require('../i18n/translations');
 const logger = require('../utils/logger');
 
 const sessions = new Map();
 const pendingRatingTimers = new Map();
-const phoneLanguages = new Map();
+// Remembers which language a "rate your experience" reminder was sent in,
+// so the "thank you" reply matches it even if the customer started a fresh
+// (re-reset) conversation in between and session.data.lang moved on.
+const ratingLangs = new Map();
 
 const SERVICES = {
   cleaning: 'Home Cleaning',
@@ -28,16 +32,14 @@ function resetSession(phone) {
 }
 
 function buildDateOptions(lang) {
-  const dayNames = getDayNames(lang);
-  const monthNames = getMonthNames(lang);
   const rows = [];
   const today = new Date();
 
   for (let i = 0; i < 7; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
-    const label = i === 0 ? getTodayLabel(lang) : i === 1 ? getTomorrowLabel(lang) : dayNames[d.getDay()];
-    const dateStr = `${d.getDate()} ${monthNames[d.getMonth()]}`;
+    const label = i === 0 ? t(lang, 'today_label') : i === 1 ? t(lang, 'tomorrow_label') : t(lang, `day_${d.getDay()}`);
+    const dateStr = `${d.getDate()} ${t(lang, `month_${d.getMonth()}`)}`;
 
     rows.push({
       id: `date_${i}`,
@@ -51,79 +53,100 @@ function buildDateOptions(lang) {
 
 function buildTimeSlotsForDate(lang) {
   return [
-    { id: 'time_morning', title: t(lang, 'timeMorningTitle'), description: t(lang, 'timeMorningDesc') },
-    { id: 'time_afternoon', title: t(lang, 'timeAfternoonTitle'), description: t(lang, 'timeAfternoonDesc') },
-    { id: 'time_evening', title: t(lang, 'timeEveningTitle'), description: t(lang, 'timeEveningDesc') },
-    { id: 'time_night', title: t(lang, 'timeNightTitle'), description: t(lang, 'timeNightDesc') },
+    { id: 'time_morning', title: t(lang, 'time_morning'), description: t(lang, 'time_morning_desc') },
+    { id: 'time_afternoon', title: t(lang, 'time_afternoon'), description: t(lang, 'time_afternoon_desc') },
+    { id: 'time_evening', title: t(lang, 'time_evening'), description: t(lang, 'time_evening_desc') },
+    { id: 'time_night', title: t(lang, 'time_night'), description: t(lang, 'time_night_desc') },
   ];
 }
-// Looks up the customer's most recent active booking and lets them cancel
-// or reschedule it. Triggered by typing "cancel", "reschedule", etc. from
-// anywhere in the conversation.
-async function showBookingActions(phone) {
-  const booking = getLatestBookingByPhone(phone);
 
-  if (!booking || booking.status === 'cancelled' || booking.status === 'completed') {
-    await sendText(
-      phone,
-      'Aapki koi active booking nahi mili. 🤔\n\nNayi booking karne ke liye "Hi" bhejein.'
-    );
-    return;
-  }
-
-  const session = getSession(phone);
-  session.step = 'booking_actions';
-  session.data.activeBookingId = booking.booking_id;
-
-  const summary = `*Aapki Booking* 📋\n\n` +
-    `ID: ${booking.booking_id}\n` +
-    `Service: ${booking.service}\n` +
-    `Time: ${booking.preferred_datetime}\n` +
-    `Status: ${booking.status}\n\n` +
-    `Kya karna chahenge?`;
-
-  await sendButtons(phone, summary, [
-    { id: 'booking_cancel', title: '❌ Cancel Karein' },
-    { id: 'booking_reschedule', title: '🔄 Reschedule Karein' },
-  ]);
-}
-
-async function startFlow(phone) {
+// Every fresh conversation starts here — language is asked EVERY time and is
+// never saved, per product decision (no DB persistence for language).
+async function askLanguage(phone) {
   resetSession(phone);
   const session = getSession(phone);
   session.step = 'choose_language';
 
-  await sendButtons(
-    phone,
-    '🌐 Please choose your language / कृपया अपनी भाषा चुनें / يرجى اختيار لغتك',
-    [
-      { id: 'lang_en', title: 'English' },
-      { id: 'lang_hi', title: 'हिन्दी' },
-      { id: 'lang_ar', title: 'العربية' },
-    ]
-  );
-}
-
-async function startServiceFlow(phone, lang) {
-  const session = getSession(phone);
-  session.step = 'choose_service';
-
-  await sendText(phone, t(lang, 'welcomeIntro'));
-
   await sendList(
     phone,
-    t(lang, 'listPrompt'),
-    t(lang, 'listButton'),
+    '🌐 *Khidmora*\n\nPlease choose your language / कृपया अपनी भाषा चुनें / يرجى اختيار لغتك',
+    'Choose Language',
     [{
-      title: t(lang, 'listButton'),
+      title: 'Languages',
       rows: [
-        { id: 'svc_cleaning', title: t(lang, 'svcCleaningTitle'), description: t(lang, 'svcCleaningDesc') },
-        { id: 'svc_ac', title: t(lang, 'svcAcTitle'), description: t(lang, 'svcAcDesc') },
-        { id: 'svc_plumber', title: t(lang, 'svcPlumberTitle'), description: t(lang, 'svcPlumberDesc') },
+        { id: 'lang_ar', title: '🇸🇦 العربية', description: 'Arabic' },
+        { id: 'lang_hi', title: '🇮🇳 हिन्दी', description: 'Hindi' },
+        { id: 'lang_en', title: '🇬🇧 English', description: 'English' },
       ],
     }]
   );
 }
+
+async function startFlow(phone) {
+  const session = getSession(phone);
+  const lang = session.data.lang;
+  session.step = 'choose_service';
+
+  await sendText(phone, t(lang, 'welcome'));
+
+  await sendList(
+    phone,
+    t(lang, 'choose_service_prompt'),
+    t(lang, 'services_button'),
+    [{
+      title: t(lang, 'services_section'),
+      rows: [
+        {
+          id: 'svc_cleaning',
+          title: t(lang, 'svc_cleaning_title'),
+          description: t(lang, 'svc_cleaning_desc'),
+        },
+        {
+          id: 'svc_ac',
+          title: t(lang, 'svc_ac_title'),
+          description: t(lang, 'svc_ac_desc'),
+        },
+        {
+          id: 'svc_plumber',
+          title: t(lang, 'svc_plumber_title'),
+          description: t(lang, 'svc_plumber_desc'),
+        },
+      ],
+    }]
+  );
+}
+
+// Looks up the customer's most recent active booking and lets them cancel
+// or reschedule it. Triggered by typing "cancel", "reschedule", etc. from
+// anywhere in the conversation (once a language has been picked).
+async function showBookingActions(phone) {
+  const session = getSession(phone);
+  const lang = session.data.lang || 'en';
+  const booking = getLatestBookingByPhone(phone);
+
+  if (!booking || booking.status === 'cancelled' || booking.status === 'completed') {
+    await sendText(phone, t(lang, 'no_active_booking'));
+    return;
+  }
+
+  session.step = 'booking_actions';
+  session.data.activeBookingId = booking.booking_id;
+
+  const statusLabel = t(lang, `status_${booking.status}`);
+
+  const summary = `${t(lang, 'booking_actions_title')}\n\n` +
+    `${t(lang, 'booking_actions_id', { bookingId: booking.booking_id })}\n` +
+    `${t(lang, 'booking_actions_service', { service: booking.service })}\n` +
+    `${t(lang, 'booking_actions_time', { time: booking.preferred_datetime })}\n` +
+    `${t(lang, 'booking_actions_status', { status: statusLabel })}\n\n` +
+    `${t(lang, 'booking_actions_prompt')}`;
+
+  await sendButtons(phone, summary, [
+    { id: 'booking_cancel', title: t(lang, 'booking_cancel_btn') },
+    { id: 'booking_reschedule', title: t(lang, 'booking_reschedule_btn') },
+  ]);
+}
+
 async function handleIncomingMessage(phone, message) {
   const session = getSession(phone);
   const text = message.text?.body?.trim();
@@ -131,100 +154,100 @@ async function handleIncomingMessage(phone, message) {
   const listReplyId = message.interactive?.list_reply?.id;
   const listReplyTitle = message.interactive?.list_reply?.title;
   const location = message.location;
+  const lang = session.data.lang || 'en';
 
- if (listReplyId && listReplyId.startsWith('rate_')) {
+  if (listReplyId && listReplyId.startsWith('rate_')) {
     const stars = listReplyId.split('_')[1];
-    const ratingLang = phoneLanguages.get(phone) || 'en';
-    await sendText(phone, t(ratingLang, 'ratingThanks', { stars }));
+    const ratingLang = ratingLangs.get(phone) || lang;
+    await sendText(phone, t(ratingLang, 'rating_thanks', { stars }));
     await notifyAdminRating(phone, stars);
+    ratingLangs.delete(phone);
     return;
   }
+
+  // Any brand-new conversation ALWAYS starts with language selection,
+  // regardless of what the customer's first message says.
+  if (session.step === 'new') {
+    await askLanguage(phone);
+    return;
   }
 
+  // Typing "Hi" again mid-flow restarts everything, including asking the
+  // language again — language is intentionally never remembered.
   if (text && /^(hi|hello|start|hi bot|salam)$/i.test(text)) {
-    await startFlow(phone);
+    await askLanguage(phone);
     return;
   }
 
-  if (text && /^(cancel|reschedule|my booking|mera booking|booking status)$/i.test(text)) {
+  if (session.data.lang && text && /^(cancel|reschedule|my booking|mera booking|booking status)$/i.test(text)) {
     await showBookingActions(phone);
     return;
   }
 
   switch (session.step) {
-    case 'new':
-      await startFlow(phone);
-      break;
-
     case 'choose_language': {
-      const langMap = { lang_en: 'en', lang_hi: 'hi', lang_ar: 'ar' };
-      const lang = langMap[buttonId];
-      if (!lang) {
-        await sendText(phone, 'Please choose a language / भाषा चुनें / اختر لغة.');
+      const map = { lang_ar: 'ar', lang_hi: 'hi', lang_en: 'en' };
+      const chosenId = buttonId || listReplyId;
+      const chosenLang = map[chosenId];
+
+      if (!chosenLang) {
+        await sendText(phone, 'Please select a language / कृपया भाषा चुनें / يرجى اختيار اللغة');
         return;
       }
-      session.data.language = lang;
-      phoneLanguages.set(phone, lang);
-      await startServiceFlow(phone, lang);
+
+      session.data.lang = chosenLang;
+      await startFlow(phone);
       break;
     }
 
     case 'choose_service': {
-      const lang = session.data.language || 'en';
       const map = { svc_cleaning: 'cleaning', svc_ac: 'ac', svc_plumber: 'plumber' };
       const chosenId = buttonId || listReplyId;
       const chosen = map[chosenId];
       if (!chosen) {
-        await sendText(phone, t(lang, 'chooseButtonPrompt'));
+        await sendText(phone, t(lang, 'choose_service_invalid'));
         return;
       }
+      session.data.serviceKey = chosen;
       session.data.service = SERVICES[chosen];
+      const serviceName = t(lang, `svc_${chosen}_name`);
 
       if (chosen === 'ac') {
         session.step = 'ac_photo_choice';
         await sendButtons(
           phone,
-          t(lang, 'acPhotoChoicePrompt', { service: SERVICES[chosen] }),
+          t(lang, 'ac_photo_prompt', { service: serviceName }),
           [
-            { id: 'ac_photo_send', title: t(lang, 'acPhotoSendBtn') },
-            { id: 'ac_photo_skip', title: t(lang, 'acPhotoSkipBtn') },
+            { id: 'ac_photo_send', title: t(lang, 'ac_photo_send_btn') },
+            { id: 'ac_photo_skip', title: t(lang, 'ac_photo_skip_btn') },
           ]
         );
         break;
       }
 
       session.step = 'ask_name';
-      await sendText(phone, t(lang, 'serviceSelected', { service: SERVICES[chosen] }));
-      break;
-    }
-      session.step = 'ask_name';
-      await sendText(
-        phone,
-        `Great! Aapne *${SERVICES[chosen]}* select kiya hai. ✅\n\nAapka pura naam kya hai?`
-      );
+      await sendText(phone, t(lang, 'ask_name_prompt', { service: serviceName }));
       break;
     }
 
     case 'ac_photo_choice': {
-      const lang = session.data.language || 'en';
       if (buttonId === 'ac_photo_send') {
         session.step = 'ac_photo_upload';
-        await sendText(phone, t(lang, 'acPhotoSendPrompt'));
+        await sendText(phone, t(lang, 'ac_photo_send_prompt'));
       } else if (buttonId === 'ac_photo_skip') {
         session.data.acPhotoPath = null;
         session.step = 'ask_name';
-        await sendText(phone, t(lang, 'acPhotoSkipConfirm'));
+        await sendText(phone, t(lang, 'ac_photo_skip_confirm'));
       } else {
-        await sendText(phone, t(lang, 'chooseButtonPrompt'));
+        await sendText(phone, t(lang, 'ac_photo_choice_invalid'));
       }
       break;
     }
 
     case 'ac_photo_upload': {
-      const lang = session.data.language || 'en';
       const image = message.image;
       if (!image || !image.id) {
-        await sendText(phone, t(lang, 'acPhotoInvalid'));
+        await sendText(phone, t(lang, 'ac_photo_upload_invalid'));
         return;
       }
 
@@ -236,69 +259,69 @@ async function handleIncomingMessage(phone, message) {
       }
 
       session.step = 'ask_name';
-      await sendText(phone, t(lang, 'acPhotoReceivedConfirm'));
+      await sendText(phone, t(lang, 'ac_photo_upload_success'));
       break;
     }
+
     case 'ask_name': {
-      const lang = session.data.language || 'en';
       const isValidName = text && text.length >= 3 && !/^(ok|okay|hi|hello|yes|no|ji|haan|thik hai|theek hai)$/i.test(text.trim());
 
       if (!isValidName) {
-        await sendText(phone, t(lang, 'nameInvalid'));
+        await sendText(phone, t(lang, 'ask_name_invalid'));
         return;
       }
       session.data.customerName = text;
       session.step = 'ask_location';
-      await sendLocationRequest(phone, t(lang, 'locationRequestPrompt', { name: text }));
+      await sendLocationRequest(phone, t(lang, 'ask_location_prompt', { name: text }));
       break;
     }
 
     case 'ask_location': {
-      const lang = session.data.language || 'en';
+      // Only a real GPS location counts here - typing any text (even "ok")
+      // must NOT be accepted as if location was shared.
       if (location && location.latitude && location.longitude) {
         const mapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
         session.data.location = location.address || location.name || `Pin location: ${mapsLink}`;
         session.data.locationMapsLink = mapsLink;
       } else {
-        await sendText(phone, t(lang, 'locationInvalid'));
+        await sendText(phone, t(lang, 'ask_location_invalid'));
         return;
       }
 
       session.step = 'ask_urgency';
       await sendButtons(
         phone,
-        t(lang, 'urgencyPrompt'),
+        t(lang, 'ask_urgency_prompt'),
         [
-          { id: 'urgent_yes', title: t(lang, 'urgencyUrgentBtn', { surcharge: URGENT_SURCHARGE }) },
-          { id: 'urgent_no', title: t(lang, 'urgencyNormalBtn') },
+          { id: 'urgent_yes', title: t(lang, 'urgent_btn', { surcharge: URGENT_SURCHARGE }) },
+          { id: 'urgent_no', title: t(lang, 'normal_btn') },
         ]
       );
       break;
     }
 
-  case 'ask_urgency': {
-      const lang = session.data.language || 'en';
+    case 'ask_urgency': {
       if (buttonId === 'urgent_yes') {
         session.data.isUrgent = true;
-        session.data.preferredDatetime = 'URGENT — ASAP';
+        session.data.preferredDatetime = 'URGENT — ASAP (turant)';
         session.step = 'confirm';
 
-        let locationLine = `${t(lang, 'labelLocation')} ${session.data.location}`;
+        let locationLine = t(lang, 'summary_location', { location: session.data.location });
         if (session.data.locationMapsLink) {
           locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
         }
 
-        const summary = `${t(lang, 'bookingSummaryTitle')}\n\n` +
-          `${t(lang, 'labelService')} ${session.data.service}\n` +
-          `${t(lang, 'labelName')} ${session.data.customerName}\n` +
+        const summary = `${t(lang, 'booking_summary_title')}\n\n` +
+          `${t(lang, 'summary_service', { service: t(lang, `svc_${session.data.serviceKey}_name`) })}\n` +
+          `${t(lang, 'summary_name', { name: session.data.customerName })}\n` +
           `${locationLine}\n` +
-          `${t(lang, 'labelUrgent')} ${t(lang, 'urgentYesLabel', { surcharge: URGENT_SURCHARGE })}\n` +
-          `${t(lang, 'labelTime')} ${session.data.preferredDatetime}\n\n` +
-          `${t(lang, 'confirmQuestion')}`;
+          `${t(lang, 'summary_urgent', { surcharge: URGENT_SURCHARGE })}\n` +
+          `${t(lang, 'summary_time', { time: session.data.preferredDatetime })}\n\n` +
+          `${t(lang, 'summary_confirm_prompt')}`;
 
         await sendButtons(phone, summary, [
-          { id: 'confirm_yes', title: t(lang, 'confirmYesBtn') },
-          { id: 'confirm_no', title: t(lang, 'confirmNoBtn') },
+          { id: 'confirm_yes', title: t(lang, 'confirm_btn') },
+          { id: 'confirm_no', title: t(lang, 'cancel_btn') },
         ]);
       } else if (buttonId === 'urgent_no') {
         session.data.isUrgent = false;
@@ -306,20 +329,19 @@ async function handleIncomingMessage(phone, message) {
         const dateRows = buildDateOptions(lang);
         await sendList(
           phone,
-          t(lang, 'dateListPrompt'),
-          t(lang, 'dateListButton'),
-          [{ title: t(lang, 'dateListButton'), rows: dateRows }]
+          t(lang, 'ask_date_prompt'),
+          t(lang, 'date_list_button'),
+          [{ title: t(lang, 'date_list_section'), rows: dateRows }]
         );
       } else {
-        await sendText(phone, t(lang, 'chooseButtonPrompt'));
+        await sendText(phone, t(lang, 'ask_urgency_invalid'));
       }
       break;
     }
 
     case 'ask_date': {
-      const lang = session.data.language || 'en';
       if (!listReplyId || !listReplyId.startsWith('date_')) {
-        await sendText(phone, t(lang, 'chooseButtonPrompt'));
+        await sendText(phone, t(lang, 'ask_date_invalid'));
         return;
       }
 
@@ -330,78 +352,94 @@ async function handleIncomingMessage(phone, message) {
       const timeRows = buildTimeSlotsForDate(lang);
       await sendList(
         phone,
-        t(lang, 'timeListPrompt', { date: session.data.preferredDate }),
-        t(lang, 'timeListButton'),
-        [{ title: t(lang, 'timeListButton'), rows: timeRows }]
+        t(lang, 'ask_time_prompt', { date: session.data.preferredDate }),
+        t(lang, 'time_list_button'),
+        [{ title: t(lang, 'time_list_section'), rows: timeRows }]
       );
       break;
     }
 
     case 'ask_datetime': {
-      const lang = session.data.language || 'en';
       if (listReplyId && listReplyId.startsWith('time_')) {
         const desc = message.interactive?.list_reply?.description || '';
         session.data.preferredDatetime = `${session.data.preferredDate}, ${listReplyTitle} (${desc})`.trim();
       } else {
-        await sendText(phone, t(lang, 'chooseButtonPrompt'));
+        await sendText(phone, t(lang, 'ask_time_invalid'));
         return;
       }
 
       session.step = 'confirm';
 
-      let locationLine = `${t(lang, 'labelLocation')} ${session.data.location}`;
+      let locationLine = t(lang, 'summary_location', { location: session.data.location });
       if (session.data.locationMapsLink) {
         locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
       }
 
-      const summary = `${t(lang, 'bookingSummaryTitle')}\n\n` +
-        `${t(lang, 'labelService')} ${session.data.service}\n` +
-        `${t(lang, 'labelName')} ${session.data.customerName}\n` +
+      const summary = `${t(lang, 'booking_summary_title')}\n\n` +
+        `${t(lang, 'summary_service', { service: t(lang, `svc_${session.data.serviceKey}_name`) })}\n` +
+        `${t(lang, 'summary_name', { name: session.data.customerName })}\n` +
         `${locationLine}\n` +
-        `${t(lang, 'labelTime')} ${session.data.preferredDatetime}\n\n` +
-        `${t(lang, 'confirmQuestion')}`;
+        `${t(lang, 'summary_time', { time: session.data.preferredDatetime })}\n\n` +
+        `${t(lang, 'summary_confirm_prompt')}`;
 
       await sendButtons(phone, summary, [
-        { id: 'confirm_yes', title: t(lang, 'confirmYesBtn') },
-        { id: 'confirm_no', title: t(lang, 'confirmNoBtn') },
+        { id: 'confirm_yes', title: t(lang, 'confirm_btn') },
+        { id: 'confirm_no', title: t(lang, 'cancel_btn') },
       ]);
       break;
     }
+
     case 'confirm': {
-      const lang = session.data.language || 'en';
       if (buttonId === 'confirm_yes') {
+        const provider = assignServiceProvider();
+        const bookingLang = lang;
+
         const bookingId = createBooking({
           customerPhone: phone,
           customerName: session.data.customerName,
           service: session.data.service,
           location: session.data.location,
           preferredDatetime: session.data.preferredDatetime,
+          technicianName: provider.name,
+          technicianPhone: provider.phone,
           acPhotoPath: session.data.acPhotoPath || null,
           isUrgent: session.data.isUrgent || false,
         });
 
-        await sendText(phone, t(lang, 'bookingConfirmed', { bookingId }));
+        await sendText(
+          phone,
+          t(lang, 'booking_confirmed', {
+            bookingId,
+            techName: provider.name,
+            techPhone: provider.phone,
+            rating: provider.rating,
+          })
+        );
 
-        await notifyAdmin(bookingId, session.data, phone);
+        await notifyAdmin(bookingId, session.data, phone, provider);
 
+        // Cancel any leftover rating-reminder from a previous test/booking on
+        // this same phone number, so old timers can't fire mid-way through a
+        // brand-new conversation.
         if (pendingRatingTimers.has(phone)) {
           clearTimeout(pendingRatingTimers.get(phone));
         }
 
         const ratingTimer = setTimeout(async () => {
           pendingRatingTimers.delete(phone);
+          ratingLangs.set(phone, bookingLang);
           await sendList(
             phone,
-            t(lang, 'ratingPrompt'),
-            t(lang, 'ratingListButton'),
+            t(bookingLang, 'rating_prompt'),
+            t(bookingLang, 'rating_list_button'),
             [{
-              title: t(lang, 'ratingListButton'),
+              title: t(bookingLang, 'rating_list_section'),
               rows: [
-                { id: 'rate_1', title: t(lang, 'rating1') },
-                { id: 'rate_2', title: t(lang, 'rating2') },
-                { id: 'rate_3', title: t(lang, 'rating3') },
-                { id: 'rate_4', title: t(lang, 'rating4') },
-                { id: 'rate_5', title: t(lang, 'rating5') },
+                { id: 'rate_1', title: t(bookingLang, 'rate_1') },
+                { id: 'rate_2', title: t(bookingLang, 'rate_2') },
+                { id: 'rate_3', title: t(bookingLang, 'rate_3') },
+                { id: 'rate_4', title: t(bookingLang, 'rate_4') },
+                { id: 'rate_5', title: t(bookingLang, 'rate_5') },
               ],
             }]
           );
@@ -411,42 +449,40 @@ async function handleIncomingMessage(phone, message) {
 
         resetSession(phone);
       } else if (buttonId === 'confirm_no') {
-        await sendText(phone, t(lang, 'bookingCancelled'));
+        await sendText(phone, t(lang, 'booking_cancelled'));
         resetSession(phone);
       } else {
-        await sendText(phone, t(lang, 'confirmButtonPrompt'));
+        await sendText(phone, t(lang, 'confirm_invalid'));
       }
       break;
     }
+
     case 'booking_actions': {
       const activeBookingId = session.data.activeBookingId;
 
       if (buttonId === 'booking_cancel') {
         updateBookingStatus(activeBookingId, 'cancelled');
-        await sendText(
-          phone,
-          `Aapki booking *${activeBookingId}* cancel kar di gayi hai. ❌\n\nNayi booking karne ke liye "Hi" bhejein.`
-        );
+        await sendText(phone, t(lang, 'booking_cancelled_confirm', { bookingId: activeBookingId }));
         await notifyAdminCancellation(activeBookingId, phone);
         resetSession(phone);
       } else if (buttonId === 'booking_reschedule') {
         session.step = 'reschedule_pick_date';
-        const dateRows = buildDateOptions();
+        const dateRows = buildDateOptions(lang);
         await sendList(
           phone,
-          'Nayi date choose karein 📅:',
-          'Date Choose Karein',
-          [{ title: 'Available Dates', rows: dateRows }]
+          t(lang, 'reschedule_pick_date_prompt'),
+          t(lang, 'date_list_button'),
+          [{ title: t(lang, 'date_list_section'), rows: dateRows }]
         );
       } else {
-        await sendText(phone, 'Please upar diye gaye button mein se ek choose karein.');
+        await sendText(phone, t(lang, 'booking_actions_invalid'));
       }
       break;
     }
 
     case 'reschedule_pick_date': {
       if (!listReplyId || !listReplyId.startsWith('date_')) {
-        await sendText(phone, 'Please upar list se ek date choose karein.');
+        await sendText(phone, t(lang, 'ask_date_invalid'));
         return;
       }
 
@@ -454,19 +490,19 @@ async function handleIncomingMessage(phone, message) {
       session.data.rescheduleDate = `${listReplyTitle}, ${desc}`.trim();
 
       session.step = 'reschedule_pick_time';
-      const timeRows = buildTimeSlotsForDate();
+      const timeRows = buildTimeSlotsForDate(lang);
       await sendList(
         phone,
-        `Date select ho gayi! ✅ (*${session.data.rescheduleDate}*)\n\nAb naya time slot choose karein 🕒:`,
-        'Time Choose Karein',
-        [{ title: 'Available Times', rows: timeRows }]
+        t(lang, 'reschedule_pick_time_prompt', { date: session.data.rescheduleDate }),
+        t(lang, 'time_list_button'),
+        [{ title: t(lang, 'time_list_section'), rows: timeRows }]
       );
       break;
     }
 
     case 'reschedule_pick_time': {
       if (!listReplyId || !listReplyId.startsWith('time_')) {
-        await sendText(phone, 'Please upar list se ek time slot choose karein.');
+        await sendText(phone, t(lang, 'ask_time_invalid'));
         return;
       }
 
@@ -476,10 +512,7 @@ async function handleIncomingMessage(phone, message) {
 
       updateBookingDatetime(activeBookingId, newDatetime);
 
-      await sendText(
-        phone,
-        `Aapki booking *${activeBookingId}* reschedule ho gayi! ✅\n\nNaya time: *${newDatetime}*`
-      );
+      await sendText(phone, t(lang, 'reschedule_confirmed', { bookingId: activeBookingId, time: newDatetime }));
       await notifyAdminReschedule(activeBookingId, phone, newDatetime);
 
       resetSession(phone);
@@ -487,9 +520,14 @@ async function handleIncomingMessage(phone, message) {
     }
 
     default:
-      await startFlow(phone);
+      await askLanguage(phone);
   }
 }
+
+// --- Admin notifications -----------------------------------------------
+// These deliberately stay in Hinglish/English regardless of the customer's
+// chosen language — they go to the business owner (ADMIN_WHATSAPP_NUMBER),
+// not the customer, so they are NOT run through t().
 
 async function notifyAdmin(bookingId, data, customerPhone, provider) {
   const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
