@@ -1,6 +1,6 @@
-const { sendText, sendButtons, sendLocationRequest, sendList, sendImageButton, downloadMedia } = require('./whatsappService');
+const { sendText, sendButtons, sendLocationRequest, sendList, downloadMedia } = require('./whatsappService');
 const { createBooking, getLatestBookingByPhone, updateBookingStatus, updateBookingDatetime } = require('../database/db');
-const { getAllProviders, getProviderById } = require('./serviceProviders');
+const { assignServiceProvider } = require('./serviceProviders');
 const { saveImageBuffer } = require('../utils/mediaStorage');
 const logger = require('../utils/logger');
 
@@ -90,29 +90,6 @@ async function showBookingActions(phone) {
     { id: 'booking_cancel', title: '❌ Cancel Karein' },
     { id: 'booking_reschedule', title: '🔄 Reschedule Karein' },
   ]);
-}
-
-// Sends each technician as its own image+button "card" so the customer can
-// simply tap "Select ✅" under the one they want. WhatsApp doesn't support
-// photos inside list messages, so separate cards is the cleanest option.
-async function sendTechnicianCards(phone) {
-  const providers = getAllProviders();
-
-  await sendText(phone, '👷 *Available Technicians*\n\nNeeche diye gaye technicians mein se apna pasandida choose karein:');
-
-  for (const provider of providers) {
-    const bodyText =
-      `*${provider.name}*\n` +
-      `⭐ Rating: ${provider.rating}/5`;
-
-    await sendImageButton(
-      phone,
-      provider.photo,
-      bodyText,
-      `select_${provider.id}`,
-      'Select ✅'
-    );
-  }
 }
 
 async function startFlow(phone) {
@@ -242,10 +219,10 @@ async function handleIncomingMessage(phone, message) {
       const image = message.image;
       if (!image || !image.id) {
         await sendText(phone, 'Please AC ki photo bhejein (camera ya gallery se) 📷.');
-        return;}
+        return;
+      }
 
-      const media = await downloadMedia(image.id);
-      if (media) {
+      const media = await downloadMedia(image.id);if (media) {
         session.data.acPhotoPath = saveImageBuffer(media.buffer, media.mimeType);
       } else {
         logger.warn(`Failed to download AC photo for ${phone}`);
@@ -390,87 +367,68 @@ async function handleIncomingMessage(phone, message) {
 
     case 'confirm': {
       if (buttonId === 'confirm_yes') {
-        session.step = 'choose_technician';
-        await sendTechnicianCards(phone);
+        const provider = assignServiceProvider();
+
+        const bookingId = createBooking({
+          customerPhone: phone,
+          customerName: session.data.customerName,
+          service: session.data.service,
+          location: session.data.location,
+          preferredDatetime: session.data.preferredDatetime,
+          technicianName: provider.name,
+          technicianPhone: provider.phone,
+          acPhotoPath: session.data.acPhotoPath || null,
+          isUrgent: session.data.isUrgent || false,
+        });
+
+        await sendText(
+          phone,
+          `*Booking Confirm ho gayi!* 🎉\n\n` +
+            `Booking ID: *${bookingId}*\n\n` +
+            `👷 *Technician:* ${provider.name}\n` +
+            `📞 *Phone:* ${provider.phone}\n` +
+            `⭐ *Rating:* ${provider.rating}/5\n\n` +
+            `Wo tay time par aapke location par pahunchenge.\n\n` +
+            `Hamari team jald aapse contact karegi. Shukriya *Khidmora* choose karne ke liye! 🙏`
+        );
+
+        await notifyAdmin(bookingId, session.data, phone, provider);
+
+        // Cancel any leftover rating-reminder from a previous test/booking on
+        // this same phone number, so old timers can't fire mid-way through a
+        // brand-new conversation.
+        if (pendingRatingTimers.has(phone)) {
+          clearTimeout(pendingRatingTimers.get(phone));
+        }
+
+        const ratingTimer = setTimeout(async () => {
+          pendingRatingTimers.delete(phone);
+          await sendList(
+            phone,
+            'Service complete hone ke baad, hamare experience ko rate karein:',
+            'Rating Dein',
+            [{
+              title: 'Rate Our Service',
+              rows: [
+                { id: 'rate_1', title: '⭐ 1 - Poor' },
+                { id: 'rate_2', title: '⭐⭐ 2 - Fair' },
+                { id: 'rate_3', title: '⭐⭐⭐ 3 - Good' },
+                { id: 'rate_4', title: '⭐⭐⭐⭐ 4 - Very Good' },
+                { id: 'rate_5', title: '⭐⭐⭐⭐⭐ 5 - Excellent' },
+              ],
+            }]
+          );
+        }, 5 * 60 * 1000);
+
+        pendingRatingTimers.set(phone, ratingTimer);
+
+        resetSession(phone);
       } else if (buttonId === 'confirm_no') {
         await sendText(phone, 'Booking cancel kar di gayi. Naya booking start karne ke liye "Hi" bhejein.');
         resetSession(phone);
       } else {
         await sendText(phone, 'Please Confirm ya Cancel button dabayein.');
       }
-      break;
-    }
-
-    case 'choose_technician': {
-      if (!buttonId || !buttonId.startsWith('select_')) {
-        await sendText(phone, 'Please upar diye gaye technicians mein se ek "Select ✅" button dabakar choose karein.');
-        return;
-      }
-
-      const techId = buttonId.replace('select_', '');
-      const provider = getProviderById(techId);
-
-      if (!provider) {
-        await sendText(phone, 'Ye technician available nahi hai. Please dobara select karein.');
-        return;
-      }
-
-      const bookingId = createBooking({
-        customerPhone: phone,
-        customerName: session.data.customerName,
-        service: session.data.service,
-        location: session.data.location,
-        preferredDatetime: session.data.preferredDatetime,
-        technicianName: provider.name,
-        technicianPhone: provider.phone,
-        acPhotoPath: session.data.acPhotoPath || null,
-        isUrgent: session.data.isUrgent || false,
-      });
-
-      await sendText(
-        phone,
-        `*Booking Confirm ho gayi!* 🎉\n\n` +
-          `Booking ID: *${bookingId}*\n\n` +
-          `👷 *Technician:* ${provider.name}\n` +
-          `📞 *Phone:* ${provider.phone}\n` +
-          `⭐ *Rating:* ${provider.rating}/5\n\n` +
-          `Wo tay time par aapke location par pahunchenge.\n\n` +
-          `Hamari team jald aapse contact karegi. Shukriya *Khidmora* choose karne ke liye! 🙏`
-      );
-
-      await notifyAdmin(bookingId, session.data, phone, provider);
-
-      const serviceName = session.data.service;
-
-      // Cancel any leftover rating-reminder from a previous test/booking on
-      // this same phone number, so old timers can't fire mid-way through a
-      // brand-new conversation.
-      if (pendingRatingTimers.has(phone)) {
-        clearTimeout(pendingRatingTimers.get(phone));
-      }
-
-      const ratingTimer = setTimeout(async () => {
-        pendingRatingTimers.delete(phone);
-        await sendList(
-          phone,
-          'Service complete hone ke baad, hamare experience ko rate karein:',
-          'Rating Dein',
-          [{
-            title: 'Rate Our Service',
-            rows: [
-              { id: 'rate_1', title: '⭐ 1 - Poor' },
-              { id: 'rate_2', title: '⭐⭐ 2 - Fair' },
-              { id: 'rate_3', title: '⭐⭐⭐ 3 - Good' },
-              { id: 'rate_4', title: '⭐⭐⭐⭐ 4 - Very Good' },
-              { id: 'rate_5', title: '⭐⭐⭐⭐⭐ 5 - Excellent' },
-            ],
-          }]
-        );
-      }, 5 * 60 * 1000);
-
-      pendingRatingTimers.set(phone, ratingTimer);
-
-      resetSession(phone);
       break;
     }
 
