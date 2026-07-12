@@ -1,0 +1,420 @@
+// src/i18n/translations.js
+//
+// All customer-facing text for the bot lives here in 3 languages.
+// Admin notifications (notifyAdmin*, in conversationService.js) are NOT
+// translated on purpose — those go to the business owner, not the customer.
+//
+// Usage: t(lang, 'key') or t(lang, 'key', { param: 'value' }) for strings
+// that contain {{placeholders}}.
+
+const translations = {
+  en: {
+    // Language picker (the picker itself is trilingual/hardcoded, these are unused here)
+
+    // Welcome + service list
+    welcome:
+      '*Khidmora* 🏠\n_Smart Home Services_\n\nWelcome! We are happy to help you.\n\nPlease select a service from the list below 👇',
+    choose_service_prompt: 'Which service would you like to book?',
+    services_button: 'View Services',
+    services_section: 'Our Services',
+    svc_cleaning_title: '🧹 Home Cleaning',
+    svc_cleaning_desc: 'Deep cleaning, sofa, kitchen & bathroom',
+    svc_cleaning_name: 'Home Cleaning',
+    svc_ac_title: '❄️ AC Service',
+    svc_ac_desc: 'Repair, gas refill, installation',
+    svc_ac_name: 'AC Service',
+    svc_plumber_title: '🔧 Plumber',
+    svc_plumber_desc: 'Leak fix, pipe & tap installation',
+    svc_plumber_name: 'Plumber',
+    choose_service_invalid: 'Please choose a service from the list above.',
+
+    // AC photo
+    ac_photo_prompt: 'Great! You selected *{{service}}*. ✅\n\nHow would you like to share the AC photo?',
+    ac_photo_send_btn: '📷 Send Photo',
+    ac_photo_skip_btn: '🧑\u200d🔧 Technician Will Check',
+    ac_photo_choice_invalid: 'Please choose one of the buttons above.',
+    ac_photo_send_prompt:
+      'Please send a photo of the AC — take one with your camera or choose from gallery 📷 (tap the 📎 attachment icon below).',
+    ac_photo_skip_confirm: 'No problem, our technician will check the AC in person. 👍\n\nWhat is your full name?',
+    ac_photo_upload_invalid: 'Please send a photo of the AC (camera or gallery) 📷.',
+    ac_photo_upload_success: 'Photo received! ✅\n\nWhat is your full name?',
+
+    // Name
+    ask_name_prompt: 'Great! You selected *{{service}}*. ✅\n\nWhat is your full name?',
+    ask_name_invalid: 'Please type your *full name* (e.g. Ahmed Khan).',
+
+    // Location
+    ask_location_prompt:
+      'Thank you, {{name}}! 🙏\n\nNow tap the button below to share your live location, so our team can reach the right place.',
+    ask_location_invalid:
+      'Please tap the *"Send Location"* button above to share your live location.\n\nThis is needed so our team can reach the right place.',
+
+    // Urgency
+    ask_urgency_prompt: 'Location received! ✅\n\nWould you like *urgent* (ASAP) service, or a normal scheduled booking?',
+    urgent_btn: '🚨 Urgent (+{{surcharge}} SAR)',
+    normal_btn: '🗓️ Normal Booking',
+    ask_urgency_invalid: 'Please choose one of the buttons above.',
+
+    // Date / time
+    ask_date_prompt: 'Great! Now please choose your preferred date 📅:',
+    date_list_button: 'Choose Date',
+    date_list_section: 'Available Dates',
+    ask_date_invalid: 'Please choose a date from the list above.',
+    ask_time_prompt: 'Date selected! ✅ (*{{date}}*)\n\nNow please choose your preferred time slot 🕒:',
+    time_list_button: 'Choose Time',
+    time_list_section: 'Available Times',
+    ask_time_invalid: 'Please choose a time slot from the list above.',
+
+    time_morning: '🌅 Morning',
+    time_morning_desc: '9:00 AM - 12:00 PM',
+    time_afternoon: '☀️ Afternoon',
+    time_afternoon_desc: '12:00 PM - 4:00 PM',
+    time_evening: '🌇 Evening',
+    time_evening_desc: '4:00 PM - 7:00 PM',
+    time_night: '🌙 Night',
+    time_night_desc: '7:00 PM - 9:00 PM',
+
+    today_label: 'Today',
+    tomorrow_label: 'Tomorrow',
+    day_0: 'Sunday',
+    day_1: 'Monday',
+    day_2: 'Tuesday',
+    day_3: 'Wednesday',
+    day_4: 'Thursday',
+    day_5: 'Friday',
+    day_6: 'Saturday',
+    month_0: 'Jan',
+    month_1: 'Feb',
+    month_2: 'Mar',
+    month_3: 'Apr',
+    month_4: 'May',
+    month_5: 'Jun',
+    month_6: 'Jul',
+    month_7: 'Aug',
+    month_8: 'Sep',
+    month_9: 'Oct',
+    month_10: 'Nov',
+    month_11: 'Dec',
+
+    // Booking summary / confirm
+    booking_summary_title: '*Booking Summary* 📋',
+    summary_service: '🔧 *Service:* {{service}}',
+    summary_name: '👤 *Name:* {{name}}',
+    summary_location: '📍 *Location:* {{location}}',
+    summary_urgent: '🚨 *Urgent:* Yes (+{{surcharge}} SAR extra)',
+    summary_time: '🕒 *Time:* {{time}}',
+    summary_confirm_prompt: 'Confirm this booking?',
+    confirm_btn: 'Confirm ✅',
+    cancel_btn: 'Cancel ❌',
+    confirm_invalid: 'Please tap Confirm or Cancel.',
+
+    booking_confirmed:
+      '*Booking Confirmed!* 🎉\n\nBooking ID: *{{bookingId}}*\n\n👷 *Technician:* {{techName}}\n📞 *Phone:* {{techPhone}}\n⭐ *Rating:* {{rating}}/5\n\nThey will reach your location at the scheduled time.\n\nOur team will contact you shortly. Thank you for choosing *Khidmora*! 🙏',
+    booking_cancelled: 'Your booking has been cancelled. Send "Hi" to start a new booking.',
+
+    // Rating
+    rating_prompt: 'Once the service is complete, please rate your experience:',
+    rating_list_button: 'Rate Us',
+    rating_list_section: 'Rate Our Service',
+    rate_1: '⭐ 1 - Poor',
+    rate_2: '⭐⭐ 2 - Fair',
+    rate_3: '⭐⭐⭐ 3 - Good',
+    rate_4: '⭐⭐⭐⭐ 4 - Very Good',
+    rate_5: '⭐⭐⭐⭐⭐ 5 - Excellent',
+    rating_thanks: 'Thank you for your *{{stars}}/5* rating! ⭐\n\nWe will keep improving our service. 🙏',
+
+    // Manage booking (cancel / reschedule)
+    no_active_booking: 'We could not find an active booking for you. 🤔\n\nSend "Hi" to make a new booking.',
+    booking_actions_title: '*Your Booking* 📋',
+    booking_actions_id: 'ID: {{bookingId}}',
+    booking_actions_service: 'Service: {{service}}',
+    booking_actions_time: 'Time: {{time}}',
+    booking_actions_status: 'Status: {{status}}',
+    booking_actions_prompt: 'What would you like to do?',
+    booking_cancel_btn: '❌ Cancel Booking',
+    booking_reschedule_btn: '🔄 Reschedule',
+    booking_actions_invalid: 'Please choose one of the buttons above.',
+    booking_cancelled_confirm: 'Your booking *{{bookingId}}* has been cancelled. ❌\n\nSend "Hi" to make a new booking.',
+    reschedule_pick_date_prompt: 'Please choose a new date 📅:',
+    reschedule_pick_time_prompt: 'Date selected! ✅ (*{{date}}*)\n\nNow choose a new time slot 🕒:',
+    reschedule_confirmed: 'Your booking *{{bookingId}}* has been rescheduled! ✅\n\nNew time: *{{time}}*',
+
+    status_pending: 'Pending',
+    status_confirmed: 'Confirmed',
+    status_in_progress: 'In Progress',
+    status_completed: 'Completed',
+    status_cancelled: 'Cancelled',
+  },
+
+  hi: {
+    welcome:
+      '*Khidmora* 🏠\n_स्मार्ट होम सर्विसेज़_\n\nनमस्ते! हम आपकी सेवा में हाज़िर हैं।\n\nकृपया नीचे दी गई सूची से अपनी सर्विस चुनें 👇',
+    choose_service_prompt: 'आप कौन सी सर्विस बुक करना चाहते हैं?',
+    services_button: 'सर्विसेज़ देखें',
+    services_section: 'हमारी सर्विसेज़',
+    svc_cleaning_title: '🧹 होम क्लीनिंग',
+    svc_cleaning_desc: 'डीप क्लीनिंग, सोफा, किचन और बाथरूम',
+    svc_cleaning_name: 'होम क्लीनिंग',
+    svc_ac_title: '❄️ एसी सर्विस',
+    svc_ac_desc: 'रिपेयर, गैस रीफिल, इंस्टॉलेशन',
+    svc_ac_name: 'एसी सर्विस',
+    svc_plumber_title: '🔧 प्लंबर',
+    svc_plumber_desc: 'लीक फिक्स, पाइप और टैप इंस्टॉलेशन',
+    svc_plumber_name: 'प्लंबर',
+    choose_service_invalid: 'कृपया ऊपर दी गई सूची से एक सर्विस चुनें।',
+
+    ac_photo_prompt: 'बढ़िया! आपने *{{service}}* चुनी है। ✅\n\nएसी की फोटो किस तरह भेजना चाहेंगे?',
+    ac_photo_send_btn: '📷 फोटो भेजें',
+    ac_photo_skip_btn: '🧑\u200d🔧 टेक्नीशियन लेगा',
+    ac_photo_choice_invalid: 'कृपया ऊपर दिए गए बटन में से एक चुनें।',
+    ac_photo_send_prompt:
+      'कृपया एसी की फोटो भेजें — कैमरे से खींचकर या गैलरी से चुनकर 📷 (नीचे 📎 अटैचमेंट आइकन दबाएं)।',
+    ac_photo_skip_confirm: 'ठीक है, टेक्नीशियन खुद एसी देखकर फोटो लेंगे। 👍\n\nआपका पूरा नाम क्या है?',
+    ac_photo_upload_invalid: 'कृपया एसी की फोटो भेजें (कैमरा या गैलरी से) 📷।',
+    ac_photo_upload_success: 'फोटो मिल गई! ✅\n\nआपका पूरा नाम क्या है?',
+
+    ask_name_prompt: 'बढ़िया! आपने *{{service}}* चुनी है। ✅\n\nआपका पूरा नाम क्या है?',
+    ask_name_invalid: 'कृपया अपना *पूरा नाम* लिखें (जैसे: अहमद खान)।',
+
+    ask_location_prompt:
+      'शुक्रिया, {{name}}! 🙏\n\nअब नीचे बटन दबाकर अपनी लाइव लोकेशन शेयर करें, ताकि हमारी टीम सही जगह पहुंच सके।',
+    ask_location_invalid:
+      'कृपया ऊपर दिए गए *"Send Location"* बटन को दबाकर अपनी लाइव लोकेशन शेयर करें।\n\nयह ज़रूरी है ताकि हमारी टीम सही जगह पहुंच सके।',
+
+    ask_urgency_prompt: 'लोकेशन मिल गई! ✅\n\nक्या आपको *तुरंत* (ASAP) सर्विस चाहिए, या नॉर्मल बुकिंग करनी है?',
+    urgent_btn: '🚨 अर्जेंट (+{{surcharge}} SAR)',
+    normal_btn: '🗓️ नॉर्मल बुकिंग',
+    ask_urgency_invalid: 'कृपया ऊपर दिए गए बटन में से एक चुनें।',
+
+    ask_date_prompt: 'बढ़िया! अब अपनी पसंदीदा तारीख चुनें 📅:',
+    date_list_button: 'तारीख चुनें',
+    date_list_section: 'उपलब्ध तारीखें',
+    ask_date_invalid: 'कृपया ऊपर दी गई सूची से एक तारीख चुनें।',
+    ask_time_prompt: 'तारीख चुन ली गई! ✅ (*{{date}}*)\n\nअब अपना पसंदीदा समय चुनें 🕒:',
+    time_list_button: 'समय चुनें',
+    time_list_section: 'उपलब्ध समय',
+    ask_time_invalid: 'कृपया ऊपर दी गई सूची से एक समय चुनें।',
+
+    time_morning: '🌅 सुबह',
+    time_morning_desc: '9:00 AM - 12:00 PM',
+    time_afternoon: '☀️ दोपहर',
+    time_afternoon_desc: '12:00 PM - 4:00 PM',
+    time_evening: '🌇 शाम',
+    time_evening_desc: '4:00 PM - 7:00 PM',
+    time_night: '🌙 रात',
+    time_night_desc: '7:00 PM - 9:00 PM',
+
+    today_label: 'आज',
+    tomorrow_label: 'कल',
+    day_0: 'रविवार',
+    day_1: 'सोमवार',
+    day_2: 'मंगलवार',
+    day_3: 'बुधवार',
+    day_4: 'गुरुवार',
+    day_5: 'शुक्रवार',
+    day_6: 'शनिवार',
+    month_0: 'जन',
+    month_1: 'फ़र',
+    month_2: 'मार्च',
+    month_3: 'अप्रैल',
+    month_4: 'मई',
+    month_5: 'जून',
+    month_6: 'जुलाई',
+    month_7: 'अग',
+    month_8: 'सित',
+    month_9: 'अक्टू',
+    month_10: 'नव',
+    month_11: 'दिस',
+
+    booking_summary_title: '*बुकिंग समरी* 📋',
+    summary_service: '🔧 *सर्विस:* {{service}}',
+    summary_name: '👤 *नाम:* {{name}}',
+    summary_location: '📍 *लोकेशन:* {{location}}',
+    summary_urgent: '🚨 *अर्जेंट:* हां (+{{surcharge}} SAR अतिरिक्त)',
+    summary_time: '🕒 *समय:* {{time}}',
+    summary_confirm_prompt: 'बुकिंग कन्फर्म करें?',
+    confirm_btn: 'कन्फर्म ✅',
+    cancel_btn: 'कैंसल ❌',
+    confirm_invalid: 'कृपया Confirm या Cancel बटन दबाएं।',
+
+    booking_confirmed:
+      '*बुकिंग कन्फर्म हो गई!* 🎉\n\nबुकिंग ID: *{{bookingId}}*\n\n👷 *टेक्नीशियन:* {{techName}}\n📞 *फोन:* {{techPhone}}\n⭐ *रेटिंग:* {{rating}}/5\n\nवह तय समय पर आपकी लोकेशन पर पहुंचेंगे।\n\nहमारी टीम जल्द आपसे संपर्क करेगी। *Khidmora* चुनने के लिए शुक्रिया! 🙏',
+    booking_cancelled: 'आपकी बुकिंग कैंसल कर दी गई है। नई बुकिंग के लिए "Hi" भेजें।',
+
+    rating_prompt: 'सर्विस पूरी होने के बाद, कृपया हमारे अनुभव को रेट करें:',
+    rating_list_button: 'रेट करें',
+    rating_list_section: 'हमारी सर्विस को रेट करें',
+    rate_1: '⭐ 1 - खराब',
+    rate_2: '⭐⭐ 2 - ठीक',
+    rate_3: '⭐⭐⭐ 3 - अच्छा',
+    rate_4: '⭐⭐⭐⭐ 4 - बहुत अच्छा',
+    rate_5: '⭐⭐⭐⭐⭐ 5 - बेहतरीन',
+    rating_thanks: 'आपकी *{{stars}}/5* रेटिंग के लिए शुक्रिया! ⭐\n\nहम अपनी सर्विस को और बेहतर बनाते रहेंगे। 🙏',
+
+    no_active_booking: 'आपकी कोई एक्टिव बुकिंग नहीं मिली। 🤔\n\nनई बुकिंग के लिए "Hi" भेजें।',
+    booking_actions_title: '*आपकी बुकिंग* 📋',
+    booking_actions_id: 'ID: {{bookingId}}',
+    booking_actions_service: 'सर्विस: {{service}}',
+    booking_actions_time: 'समय: {{time}}',
+    booking_actions_status: 'स्टेटस: {{status}}',
+    booking_actions_prompt: 'आप क्या करना चाहेंगे?',
+    booking_cancel_btn: '❌ बुकिंग कैंसल करें',
+    booking_reschedule_btn: '🔄 रीशेड्यूल करें',
+    booking_actions_invalid: 'कृपया ऊपर दिए गए बटन में से एक चुनें।',
+    booking_cancelled_confirm: 'आपकी बुकिंग *{{bookingId}}* कैंसल कर दी गई है। ❌\n\nनई बुकिंग के लिए "Hi" भेजें।',
+    reschedule_pick_date_prompt: 'कृपया नई तारीख चुनें 📅:',
+    reschedule_pick_time_prompt: 'तारीख चुन ली गई! ✅ (*{{date}}*)\n\nअब नया समय चुनें 🕒:',
+    reschedule_confirmed: 'आपकी बुकिंग *{{bookingId}}* रीशेड्यूल हो गई! ✅\n\nनया समय: *{{time}}*',
+
+    status_pending: 'पेंडिंग',
+    status_confirmed: 'कन्फर्म',
+    status_in_progress: 'चालू',
+    status_completed: 'पूरी हुई',
+    status_cancelled: 'कैंसल',
+  },
+
+  ar: {
+    welcome:
+      '*خدمورة* 🏠\n_خدمات منزلية ذكية_\n\nمرحباً بكم! نحن هنا لخدمتكم.\n\nيرجى اختيار الخدمة من القائمة أدناه 👇',
+    choose_service_prompt: 'ما هي الخدمة التي ترغب في حجزها؟',
+    services_button: 'عرض الخدمات',
+    services_section: 'خدماتنا',
+    svc_cleaning_title: '🧹 تنظيف المنزل',
+    svc_cleaning_desc: 'تنظيف عميق، أرائك، مطبخ وحمام',
+    svc_cleaning_name: 'تنظيف المنزل',
+    svc_ac_title: '❄️ صيانة المكيفات',
+    svc_ac_desc: 'إصلاح، إعادة تعبئة الغاز، تركيب',
+    svc_ac_name: 'صيانة المكيفات',
+    svc_plumber_title: '🔧 السباكة',
+    svc_plumber_desc: 'إصلاح التسريبات، تركيب الأنابيب والصنابير',
+    svc_plumber_name: 'السباكة',
+    choose_service_invalid: 'يرجى اختيار خدمة من القائمة أعلاه.',
+
+    ac_photo_prompt: 'رائع! لقد اخترت *{{service}}*. ✅\n\nكيف تودّ مشاركة صورة المكيف؟',
+    ac_photo_send_btn: '📷 إرسال صورة',
+    ac_photo_skip_btn: '🧑\u200d🔧 الفني سيتحقق',
+    ac_photo_choice_invalid: 'يرجى اختيار أحد الأزرار أعلاه.',
+    ac_photo_send_prompt:
+      'يرجى إرسال صورة للمكيف — بالتقاطها بالكاميرا أو اختيارها من المعرض 📷 (اضغط على أيقونة 📎 أدناه).',
+    ac_photo_skip_confirm: 'لا مشكلة، سيتحقق الفني من المكيف بنفسه. 👍\n\nما اسمك الكامل؟',
+    ac_photo_upload_invalid: 'يرجى إرسال صورة للمكيف (بالكاميرا أو المعرض) 📷.',
+    ac_photo_upload_success: 'تم استلام الصورة! ✅\n\nما اسمك الكامل؟',
+
+    ask_name_prompt: 'رائع! لقد اخترت *{{service}}*. ✅\n\nما اسمك الكامل؟',
+    ask_name_invalid: 'يرجى كتابة *اسمك الكامل* (مثال: أحمد خان).',
+
+    ask_location_prompt:
+      'شكراً لك، {{name}}! 🙏\n\nالآن اضغط على الزر أدناه لمشاركة موقعك الحالي، حتى يتمكن فريقنا من الوصول إلى المكان الصحيح.',
+    ask_location_invalid:
+      'يرجى الضغط على زر *"إرسال الموقع"* أعلاه لمشاركة موقعك الحالي.\n\nهذا ضروري حتى يصل فريقنا إلى المكان الصحيح.',
+
+    ask_urgency_prompt: 'تم استلام الموقع! ✅\n\nهل تريد خدمة *عاجلة* (فورية)، أم حجز عادي؟',
+    urgent_btn: '🚨 عاجل (+{{surcharge}} ريال)',
+    normal_btn: '🗓️ حجز عادي',
+    ask_urgency_invalid: 'يرجى اختيار أحد الأزرار أعلاه.',
+
+    ask_date_prompt: 'رائع! الآن يرجى اختيار التاريخ المفضل لديك 📅:',
+    date_list_button: 'اختر التاريخ',
+    date_list_section: 'التواريخ المتاحة',
+    ask_date_invalid: 'يرجى اختيار تاريخ من القائمة أعلاه.',
+    ask_time_prompt: 'تم اختيار التاريخ! ✅ (*{{date}}*)\n\nالآن يرجى اختيار الوقت المفضل لديك 🕒:',
+    time_list_button: 'اختر الوقت',
+    time_list_section: 'الأوقات المتاحة',
+    ask_time_invalid: 'يرجى اختيار وقت من القائمة أعلاه.',
+
+    time_morning: '🌅 صباحاً',
+    time_morning_desc: '9:00 - 12:00 صباحاً',
+    time_afternoon: '☀️ ظهراً',
+    time_afternoon_desc: '12:00 - 4:00 مساءً',
+    time_evening: '🌇 مساءً',
+    time_evening_desc: '4:00 - 7:00 مساءً',
+    time_night: '🌙 ليلاً',
+    time_night_desc: '7:00 - 9:00 مساءً',
+
+    today_label: 'اليوم',
+    tomorrow_label: 'غداً',
+    day_0: 'الأحد',
+    day_1: 'الإثنين',
+    day_2: 'الثلاثاء',
+    day_3: 'الأربعاء',
+    day_4: 'الخميس',
+    day_5: 'الجمعة',
+    day_6: 'السبت',
+    month_0: 'يناير',
+    month_1: 'فبراير',
+    month_2: 'مارس',
+    month_3: 'أبريل',
+    month_4: 'مايو',
+    month_5: 'يونيو',
+    month_6: 'يوليو',
+    month_7: 'أغسطس',
+    month_8: 'سبتمبر',
+    month_9: 'أكتوبر',
+    month_10: 'نوفمبر',
+    month_11: 'ديسمبر',
+
+    booking_summary_title: '*ملخص الحجز* 📋',
+    summary_service: '🔧 *الخدمة:* {{service}}',
+    summary_name: '👤 *الاسم:* {{name}}',
+    summary_location: '📍 *الموقع:* {{location}}',
+    summary_urgent: '🚨 *عاجل:* نعم (+{{surcharge}} ريال إضافي)',
+    summary_time: '🕒 *الوقت:* {{time}}',
+    summary_confirm_prompt: 'هل تؤكد هذا الحجز؟',
+    confirm_btn: 'تأكيد ✅',
+    cancel_btn: 'إلغاء ❌',
+    confirm_invalid: 'يرجى الضغط على تأكيد أو إلغاء.',
+
+    booking_confirmed:
+      '*تم تأكيد الحجز!* 🎉\n\nرقم الحجز: *{{bookingId}}*\n\n👷 *الفني:* {{techName}}\n📞 *الهاتف:* {{techPhone}}\n⭐ *التقييم:* {{rating}}/5\n\nسيصل الفني إلى موقعك في الوقت المحدد.\n\nسيتواصل معك فريقنا قريباً. شكراً لاختياركم *خدمورة*! 🙏',
+    booking_cancelled: 'تم إلغاء حجزك. أرسل "Hi" لبدء حجز جديد.',
+
+    rating_prompt: 'بعد اكتمال الخدمة، يرجى تقييم تجربتك:',
+    rating_list_button: 'قيّم الخدمة',
+    rating_list_section: 'قيّم خدمتنا',
+    rate_1: '⭐ 1 - ضعيف',
+    rate_2: '⭐⭐ 2 - مقبول',
+    rate_3: '⭐⭐⭐ 3 - جيد',
+    rate_4: '⭐⭐⭐⭐ 4 - جيد جداً',
+    rate_5: '⭐⭐⭐⭐⭐ 5 - ممتاز',
+    rating_thanks: 'شكراً على تقييمك *{{stars}}/5*! ⭐\n\nسنواصل تحسين خدماتنا. 🙏',
+
+    no_active_booking: 'لم نجد أي حجز نشط لك. 🤔\n\nأرسل "Hi" لإجراء حجز جديد.',
+    booking_actions_title: '*حجزك* 📋',
+    booking_actions_id: 'رقم الحجز: {{bookingId}}',
+    booking_actions_service: 'الخدمة: {{service}}',
+    booking_actions_time: 'الوقت: {{time}}',
+    booking_actions_status: 'الحالة: {{status}}',
+    booking_actions_prompt: 'ماذا تريد أن تفعل؟',
+    booking_cancel_btn: '❌ إلغاء الحجز',
+    booking_reschedule_btn: '🔄 إعادة الجدولة',
+    booking_actions_invalid: 'يرجى اختيار أحد الأزرار أعلاه.',
+    booking_cancelled_confirm: 'تم إلغاء حجزك *{{bookingId}}*. ❌\n\nأرسل "Hi" لإجراء حجز جديد.',
+    reschedule_pick_date_prompt: 'يرجى اختيار تاريخ جديد 📅:',
+    reschedule_pick_time_prompt: 'تم اختيار التاريخ! ✅ (*{{date}}*)\n\nالآن اختر وقتاً جديداً 🕒:',
+    reschedule_confirmed: 'تمت إعادة جدولة حجزك *{{bookingId}}*! ✅\n\nالوقت الجديد: *{{time}}*',
+
+    status_pending: 'قيد الانتظار',
+    status_confirmed: 'مؤكد',
+    status_in_progress: 'جارٍ التنفيذ',
+    status_completed: 'مكتمل',
+    status_cancelled: 'ملغى',
+  },
+};
+
+const SUPPORTED_LANGUAGES = ['ar', 'hi', 'en'];
+
+function fill(str, params) {
+  if (!params) return str;
+  return str.replace(/{{(\w+)}}/g, (_, key) => (params[key] !== undefined ? params[key] : `{{${key}}}`));
+}
+
+// t(lang, key, params?) - looks up the string in the requested language,
+// falls back to English if missing, and fills in {{placeholders}}.
+function t(lang, key, params) {
+  const dict = translations[lang] || translations.en;
+  const str = dict[key] !== undefined ? dict[key] : translations.en[key];
+  if (str === undefined) return key;
+  return fill(str, params);
+}
+
+module.exports = { t, translations, SUPPORTED_LANGUAGES };
