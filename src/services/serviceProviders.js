@@ -35,13 +35,14 @@ const SERVICE_PROVIDERS = [
     photo: 'https://randomuser.me/api/portraits/men/56.jpg',
   },
 ];
-
 function getAllProviders() {
   return SERVICE_PROVIDERS;
 }
-
 function getProviderById(id) {
   return SERVICE_PROVIDERS.find((p) => p.id === id);
 }
-
-module.exports = { getAllProviders, getProviderById };
+function assignServiceProvider() {
+  const idx = Math.floor(Math.random() * SERVICE_PROVIDERS.length);
+  return SERVICE_PROVIDERS[idx];
+}
+module.exports = { getAllProviders, getProviderById, assignServiceProvider };
