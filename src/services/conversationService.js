@@ -1,5 +1,6 @@
-const { sendText, sendButtons, sendLocationRequest, sendList, downloadMedia } = require('./whatsappService');
-const { createBooking } = require('../database/db');
+const { sendText, sendButtons, sendLocationRequest, sendList, sendImageButton, downloadMedia } = require('./whatsappService');
+const { createBooking, getLatestBookingByPhone, updateBookingStatus, updateBookingDatetime } = require('../database/db');
+const { getAllProviders, getProviderById } = require('./serviceProviders');
 const { saveImageBuffer } = require('../utils/mediaStorage');
 const logger = require('../utils/logger');
 
@@ -58,6 +59,60 @@ function buildTimeSlotsForDate() {
     { id: 'time_evening', title: '🌇 Evening', description: '4:00 PM - 7:00 PM' },
     { id: 'time_night', title: '🌙 Night', description: '7:00 PM - 9:00 PM' },
   ];
+}
+
+// Looks up the customer's most recent active booking and lets them cancel
+// or reschedule it. Triggered by typing "cancel", "reschedule", etc. from
+// anywhere in the conversation.
+async function showBookingActions(phone) {
+  const booking = getLatestBookingByPhone(phone);
+
+  if (!booking || booking.status === 'cancelled' || booking.status === 'completed') {
+    await sendText(
+      phone,
+      'Aapki koi active booking nahi mili. 🤔\n\nNayi booking karne ke liye "Hi" bhejein.'
+    );
+    return;
+  }
+
+  const session = getSession(phone);
+  session.step = 'booking_actions';
+  session.data.activeBookingId = booking.booking_id;
+
+  const summary = `*Aapki Booking* 📋\n\n` +
+    `ID: ${booking.booking_id}\n` +
+    `Service: ${booking.service}\n` +
+    `Time: ${booking.preferred_datetime}\n` +
+    `Status: ${booking.status}\n\n` +
+    `Kya karna chahenge?`;
+
+  await sendButtons(phone, summary, [
+    { id: 'booking_cancel', title: '❌ Cancel Karein' },
+    { id: 'booking_reschedule', title: '🔄 Reschedule Karein' },
+  ]);
+}
+
+// Sends each technician as its own image+button "card" so the customer can
+// simply tap "Select ✅" under the one they want. WhatsApp doesn't support
+// photos inside list messages, so separate cards is the cleanest option.
+async function sendTechnicianCards(phone) {
+  const providers = getAllProviders();
+
+  await sendText(phone, '👷 *Available Technicians*\n\nNeeche diye gaye technicians mein se apna pasandida choose karein:');
+
+  for (const provider of providers) {
+    const bodyText =
+      `*${provider.name}*\n` +
+      `⭐ Rating: ${provider.rating}/5`;
+
+    await sendImageButton(
+      phone,
+      provider.photo,
+      bodyText,
+      `select_${provider.id}`,
+      'Select ✅'
+    );
+  }
 }
 
 async function startFlow(phone) {
@@ -122,6 +177,11 @@ async function handleIncomingMessage(phone, message) {
     return;
   }
 
+  if (text && /^(cancel|reschedule|my booking|mera booking|booking status)$/i.test(text)) {
+    await showBookingActions(phone);
+    return;
+  }
+
   switch (session.step) {
     case 'new':
       await startFlow(phone);
@@ -182,8 +242,7 @@ async function handleIncomingMessage(phone, message) {
       const image = message.image;
       if (!image || !image.id) {
         await sendText(phone, 'Please AC ki photo bhejein (camera ya gallery se) 📷.');
-        return;
-      }
+        return;}
 
       const media = await downloadMedia(image.id);
       if (media) {
@@ -214,6 +273,8 @@ async function handleIncomingMessage(phone, message) {
     }
 
     case 'ask_location': {
+      // Only a real GPS location counts here - typing any text (even "ok")
+      // must NOT be accepted as if location was shared.
       if (location && location.latitude && location.longitude) {
         const mapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
         session.data.location = location.address || location.name || `Pin location: ${mapsLink}`;
@@ -222,3 +283,330 @@ async function handleIncomingMessage(phone, message) {
         await sendText(
           phone,
           'Please upar diye gaye *"Send Location"* button ko dabakar apni live location share karein.\n\nYe zaroori hai taaki hamari team sahi jagah pahunch sake.'
+        );
+        return;
+      }
+
+      session.step = 'ask_urgency';
+      await sendButtons(
+        phone,
+        `Location mil gayi! ✅\n\nKya aapko *turant* (ASAP) service chahiye, ya normal booking karni hai?`,
+        [
+          { id: 'urgent_yes', title: `🚨 Urgent (+${URGENT_SURCHARGE} SAR)` },
+          { id: 'urgent_no', title: '🗓️ Normal Booking' },
+        ]
+      );
+      break;
+    }
+
+    case 'ask_urgency': {
+      if (buttonId === 'urgent_yes') {
+        session.data.isUrgent = true;
+        session.data.preferredDatetime = 'URGENT — ASAP (turant)';
+        session.step = 'confirm';
+
+        let locationLine = `📍 *Location:* ${session.data.location}`;
+        if (session.data.locationMapsLink) {
+          locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
+        }
+
+        const summary = `*Booking Summary* 📋\n\n` +
+          `🔧 *Service:* ${session.data.service}\n` +
+          `👤 *Naam:* ${session.data.customerName}\n` +
+          `${locationLine}\n` +
+          `🚨 *Urgent:* Haan (+${URGENT_SURCHARGE} SAR extra)\n` +
+          `🕒 *Time:* ${session.data.preferredDatetime}\n\n` +
+          `Confirm karein?`;
+
+        await sendButtons(phone, summary, [
+          { id: 'confirm_yes', title: 'Confirm ✅' },
+          { id: 'confirm_no', title: 'Cancel ❌' },
+        ]);
+      } else if (buttonId === 'urgent_no') {
+        session.data.isUrgent = false;
+        session.step = 'ask_date';
+        const dateRows = buildDateOptions();
+        await sendList(
+          phone,
+          'Theek hai! Ab apni preferred date choose karein 📅:',
+          'Date Choose Karein',
+          [{ title: 'Available Dates', rows: dateRows }]
+        );
+      } else {
+        await sendText(phone, 'Please upar diye gaye button mein se ek choose karein.');
+      }
+      break;
+    }
+
+    case 'ask_date': {
+      if (!listReplyId || !listReplyId.startsWith('date_')) {
+        await sendText(phone, 'Please upar list se ek date choose karein.');
+        return;
+      }
+
+      const desc = message.interactive?.list_reply?.description || '';
+      session.data.preferredDate = `${listReplyTitle}, ${desc}`.trim();
+
+      session.step = 'ask_datetime';
+      const timeRows = buildTimeSlotsForDate();
+      await sendList(
+        phone,
+        `Date select ho gayi! ✅ (*${session.data.preferredDate}*)\n\nAb apna preferred time slot choose karein 🕒:`,
+        'Time Choose Karein',
+        [{ title: 'Available Times', rows: timeRows }]
+      );
+      break;
+    }
+
+    case 'ask_datetime': {
+      if (listReplyId && listReplyId.startsWith('time_')) {
+        const desc = message.interactive?.list_reply?.description || '';
+        session.data.preferredDatetime = `${session.data.preferredDate}, ${listReplyTitle} (${desc})`.trim();
+      } else {
+        await sendText(phone, 'Please upar list se ek time slot choose karein.');
+        return;
+      }
+
+      session.step = 'confirm';
+
+      let locationLine = `📍 *Location:* ${session.data.location}`;
+      if (session.data.locationMapsLink) {
+        locationLine += `\n🗺️ ${session.data.locationMapsLink}`;
+      }
+
+      const summary = `*Booking Summary* 📋\n\n` +
+        `🔧 *Service:* ${session.data.service}\n` +
+        `👤 *Naam:* ${session.data.customerName}\n` +
+        `${locationLine}\n` +
+        `🕒 *Time:* ${session.data.preferredDatetime}\n\n` +
+        `Confirm karein?`;
+
+      await sendButtons(phone, summary, [
+        { id: 'confirm_yes', title: 'Confirm ✅' },
+        { id: 'confirm_no', title: 'Cancel ❌' },
+      ]);
+      break;
+    }
+
+    case 'confirm': {
+      if (buttonId === 'confirm_yes') {
+        session.step = 'choose_technician';
+        await sendTechnicianCards(phone);
+      } else if (buttonId === 'confirm_no') {
+        await sendText(phone, 'Booking cancel kar di gayi. Naya booking start karne ke liye "Hi" bhejein.');
+        resetSession(phone);
+      } else {
+        await sendText(phone, 'Please Confirm ya Cancel button dabayein.');
+      }
+      break;
+    }
+
+    case 'choose_technician': {
+      if (!buttonId || !buttonId.startsWith('select_')) {
+        await sendText(phone, 'Please upar diye gaye technicians mein se ek "Select ✅" button dabakar choose karein.');
+        return;
+      }
+
+      const techId = buttonId.replace('select_', '');
+      const provider = getProviderById(techId);
+
+      if (!provider) {
+        await sendText(phone, 'Ye technician available nahi hai. Please dobara select karein.');
+        return;
+      }
+
+      const bookingId = createBooking({
+        customerPhone: phone,
+        customerName: session.data.customerName,
+        service: session.data.service,
+        location: session.data.location,
+        preferredDatetime: session.data.preferredDatetime,
+        technicianName: provider.name,
+        technicianPhone: provider.phone,
+        acPhotoPath: session.data.acPhotoPath || null,
+        isUrgent: session.data.isUrgent || false,
+      });
+
+      await sendText(
+        phone,
+        `*Booking Confirm ho gayi!* 🎉\n\n` +
+          `Booking ID: *${bookingId}*\n\n` +
+          `👷 *Technician:* ${provider.name}\n` +
+          `📞 *Phone:* ${provider.phone}\n` +
+          `⭐ *Rating:* ${provider.rating}/5\n\n` +
+          `Wo tay time par aapke location par pahunchenge.\n\n` +
+          `Hamari team jald aapse contact karegi. Shukriya *Khidmora* choose karne ke liye! 🙏`
+      );
+
+      await notifyAdmin(bookingId, session.data, phone, provider);
+
+      const serviceName = session.data.service;
+
+      // Cancel any leftover rating-reminder from a previous test/booking on
+      // this same phone number, so old timers can't fire mid-way through a
+      // brand-new conversation.
+      if (pendingRatingTimers.has(phone)) {
+        clearTimeout(pendingRatingTimers.get(phone));
+      }
+
+      const ratingTimer = setTimeout(async () => {
+        pendingRatingTimers.delete(phone);
+        await sendList(
+          phone,
+          'Service complete hone ke baad, hamare experience ko rate karein:',
+          'Rating Dein',
+          [{
+            title: 'Rate Our Service',
+            rows: [
+              { id: 'rate_1', title: '⭐ 1 - Poor' },
+              { id: 'rate_2', title: '⭐⭐ 2 - Fair' },
+              { id: 'rate_3', title: '⭐⭐⭐ 3 - Good' },
+              { id: 'rate_4', title: '⭐⭐⭐⭐ 4 - Very Good' },
+              { id: 'rate_5', title: '⭐⭐⭐⭐⭐ 5 - Excellent' },
+            ],
+          }]
+        );
+      }, 5 * 60 * 1000);
+
+      pendingRatingTimers.set(phone, ratingTimer);
+
+      resetSession(phone);
+      break;
+    }
+
+    case 'booking_actions': {
+      const activeBookingId = session.data.activeBookingId;
+
+      if (buttonId === 'booking_cancel') {
+        updateBookingStatus(activeBookingId, 'cancelled');
+        await sendText(
+          phone,
+          `Aapki booking *${activeBookingId}* cancel kar di gayi hai. ❌\n\nNayi booking karne ke liye "Hi" bhejein.`
+        );
+        await notifyAdminCancellation(activeBookingId, phone);
+        resetSession(phone);
+      } else if (buttonId === 'booking_reschedule') {
+        session.step = 'reschedule_pick_date';
+        const dateRows = buildDateOptions();
+        await sendList(
+          phone,
+          'Nayi date choose karein 📅:',
+          'Date Choose Karein',
+          [{ title: 'Available Dates', rows: dateRows }]
+        );
+      } else {
+        await sendText(phone, 'Please upar diye gaye button mein se ek choose karein.');
+      }
+      break;
+    }
+
+    case 'reschedule_pick_date': {
+      if (!listReplyId || !listReplyId.startsWith('date_')) {
+        await sendText(phone, 'Please upar list se ek date choose karein.');
+        return;
+      }
+
+      const desc = message.interactive?.list_reply?.description || '';
+      session.data.rescheduleDate = `${listReplyTitle}, ${desc}`.trim();
+
+      session.step = 'reschedule_pick_time';
+      const timeRows = buildTimeSlotsForDate();
+      await sendList(
+        phone,
+        `Date select ho gayi! ✅ (*${session.data.rescheduleDate}*)\n\nAb naya time slot choose karein 🕒:`,
+        'Time Choose Karein',
+        [{ title: 'Available Times', rows: timeRows }]
+      );
+      break;
+    }
+
+    case 'reschedule_pick_time': {
+      if (!listReplyId || !listReplyId.startsWith('time_')) {
+        await sendText(phone, 'Please upar list se ek time slot choose karein.');
+        return;
+      }
+
+      const desc = message.interactive?.list_reply?.description || '';
+      const newDatetime = `${session.data.rescheduleDate}, ${listReplyTitle} (${desc})`.trim();
+      const activeBookingId = session.data.activeBookingId;
+
+      updateBookingDatetime(activeBookingId, newDatetime);
+
+      await sendText(
+        phone,
+        `Aapki booking *${activeBookingId}* reschedule ho gayi! ✅\n\nNaya time: *${newDatetime}*`
+      );
+      await notifyAdminReschedule(activeBookingId, phone, newDatetime);
+
+      resetSession(phone);
+      break;
+    }
+
+    default:
+      await startFlow(phone);
+  }
+}
+
+async function notifyAdmin(bookingId, data, customerPhone, provider) {
+  const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+  if (!adminNumber) {
+    logger.warn('ADMIN_WHATSAPP_NUMBER not set, skipping admin notification');
+    return;
+  }
+
+  let msg = data.isUrgent
+    ? `🚨🚨 *URGENT BOOKING!* 🚨🚨\n\n`
+    : `🔔 *Nayi Booking!*\n\n`;
+
+  msg += `ID: ${bookingId}\n` +
+    `Service: ${data.service}\n` +
+    `Naam: ${data.customerName}\n` +
+    `Location: ${data.location}\n`;
+
+  if (data.locationMapsLink) {
+    msg += `Map: ${data.locationMapsLink}\n`;
+  }
+
+  msg += `Time: ${data.preferredDatetime}\n` +
+    `Technician: ${provider.name} (${provider.phone})\n` +
+    `Customer Phone: ${customerPhone}`;
+
+  if (data.isUrgent) {
+    msg += `\nUrgent Surcharge: +${URGENT_SURCHARGE} SAR`;
+  }
+
+  if (data.acPhotoPath) {
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    msg += `\nAC Photo: ${baseUrl}${data.acPhotoPath}`;
+  }
+
+  await sendText(adminNumber, msg);
+}
+
+async function notifyAdminRating(customerPhone, stars) {
+  const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+  if (!adminNumber) return;
+  await sendText(adminNumber, `⭐ *Naya Rating Mila!*\n\nCustomer: ${customerPhone}\nRating: ${stars}/5`);
+}
+
+async function notifyAdminCancellation(bookingId, customerPhone) {
+  const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+  if (!adminNumber) return;
+  await sendText(
+    adminNumber,
+    `❌ *Booking Cancel Hui!*\n\nID: ${bookingId}\nCustomer Phone: ${customerPhone}`
+  );
+}
+
+async function notifyAdminReschedule(bookingId, customerPhone, newDatetime) {
+  const adminNumber = process.env.ADMIN_WHATSAPP_NUMBER;
+  if (!adminNumber) return;
+  await sendText(
+    adminNumber,
+    `🔄 *Booking Reschedule Hui!*\n\nID: ${bookingId}\nCustomer Phone: ${customerPhone}\nNaya Time: ${newDatetime}`
+  );
+}
+
+module.exports = {
+  handleIncomingMessage,
+};
